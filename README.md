@@ -18,7 +18,7 @@ It supports two Hi-Link radars:
 
 *Both images use the simulated data from the [demo](#development).*
 
-> **Status: 0.1.0, early.** The LD2450 adapter follows the entity names from the ESPHome docs. The LD6004 adapter follows the external component's source and example YAML, but it has **not been tested with real hardware yet**: the sign of Z and the axes of the ceiling mode may need adjusting. Please open an issue with your readings if something looks off.
+> **Status: early.** The LD2450 adapter follows the entity names from the ESPHome docs. The LD6004 adapter follows the external component's source and example YAML, but it has **not been tested with real hardware yet**: the sign of Z and the axes of the ceiling mode may need adjusting. Please open an issue with your readings if something looks off.
 
 ## Features
 
@@ -26,6 +26,11 @@ It supports two Hi-Link radars:
 - **Wall or ceiling mounting.** The LD6004 can read it from its *Install Method* select.
 - **Zones as boxes**, read from the sensor: detection zones light up when someone is inside. Zones the radar ignores (LD6004 interference zones, LD2450 *Filter* zones) are hatched in the theme's error colour and numbered on their own (*Interference 1*, *Excluded 1*); dwell zones have dashed edges.
 - **Height and posture** (LD6004): standing, sitting or lying, with thresholds you can tune.
+- **Your room**: walls, doors and furniture from YAML, so positions read against the real space. Someone lying on a sofa or a bed rests on top of it.
+- **Edit zones by dragging them** in the plan view. The card writes them to the sensor (the LD2450's zone number entities or the LD6004's ESPHome service) and waits for the sensor to confirm. Admins only.
+- **Tap a person or a zone** to open Home Assistant's more-info dialog, with its history. Table rows and zone chips do the same.
+- **Replay and heatmap** from the recorder: play back the last 1, 6 or 24 hours at ×1, ×10 or ×60, or see where people spent their time.
+- **Visual editor** in the dashboard UI, for everything except the room and single-entity overrides.
 - A small **table** with position, height or speed, and zone for each person, plus a chip per zone.
 - **Follows the Home Assistant theme** (light, dark and custom themes), and the UI is in English or Spanish depending on the HA language.
 - **Leaves dashboard scrolling alone**: one finger or the mouse wheel scrolls the page. To zoom, use Ctrl/⌘ + wheel, a trackpad pinch or two fingers.
@@ -106,6 +111,9 @@ posture:
 | `show_table` | boolean | `true` | Table and zone chips under the 3D view |
 | `show_interference` | boolean | `true` | Show the zones the radar ignores: LD6004 interference zones and LD2450 *Filter* zones |
 | `zone_names` | list | `Zone 1`, `Zone 2`… | Names for the detection zones, in order |
+| `room` | object | — | Walls, doors and furniture to draw, see [Room and furniture](#room-and-furniture) |
+| `allow_zone_editing` | boolean | `true` | Show the *Edit zones* button (it only appears for admin users) |
+| `zone_service` | string | found automatically | LD6004 only: the ESPHome service that writes zones, e.g. `esphome.hlk_ld6004_set_detection_zone`. Needed when there is more than one LD6004. |
 | `entities.targets` | list | — | Replaces single entities, per target: `[{ x, y, z, speed }, …]` |
 
 ¹ Not needed if you list every entity under `entities.targets`.
@@ -118,6 +126,32 @@ entities:
     - { x: sensor.office_person_1_x, y: sensor.office_person_1_y }
     - { x: sensor.office_person_2_x, y: sensor.office_person_2_y }
 ```
+
+### Room and furniture
+
+Coordinates are in metres in the same frame as the sensor (x to its right, y forward; for a ceiling sensor, relative to the point under it). Walls are the corners of the floor outline, in order; a door is a stretch of wall drawn as an opening; furniture items are boxes.
+
+```yaml
+room:
+  wall_height: 2.4                 # default 2.4 m
+  walls: [[-3.2, 0], [3.4, 0], [3.4, 5.8], [-3.2, 5.8]]
+  doors:
+    - { from: [3.4, 4.6], to: [3.4, 5.5] }
+  furniture:
+    - { name: Desk, x: [-1.3, 0.5], y: [0.55, 1.15], height: 0.75 }
+    - { name: Sofa, x: [-2.9, -1.0], y: [3.7, 4.6], height: 0.45 }
+```
+
+### Editing zones
+
+Select **Edit zones**: the card switches to the plan view and shows a handle on each corner. Drag a zone to move it or a corner to resize it, or use **Add zone** and **Delete zone**. Each change is saved to the sensor when you let go, and the zone stays as you left it until the sensor reports it back (after 8 s without that, the card says so and redraws what the sensor has).
+
+- **LD2450**: writes `number.<prefix>_zone_N_x1 … y2` with `number.set_value`, in the entity's unit and within its min/max. The zone type (*Detection* or *Filter*) is still chosen on the device.
+- **LD6004**: calls `esphome.<node>_set_detection_zone`, the service in the component's example YAML, keeping each zone's height limits. Zones snap to 10 cm because the component reports them with one decimal. With a single LD6004 the card finds the service by itself; with several, set `zone_service`.
+
+### Replay and heatmap
+
+**Replay** and **Heatmap** read the target entities from the recorder with `history/history_during_period`, for the last 1, 6 or 24 hours. If those sensors are excluded from the recorder there is nothing to show, and the card says so. An LD2450 publishing once a second produces about 86,000 states per entity a day, so 24 hours takes a few seconds to load.
 
 ### Entities the card reads
 
@@ -218,15 +252,27 @@ npm test          # adapter and config tests (node:test)
 npm run build     # bundles src/ and three.js into dist/mmwave-3d-card.js
 npm run watch     # rebuilds on change, unminified with source maps
 npm run demo      # serves the repo; open http://localhost:8766/demo/
+npm run docs:capture   # regenerates docs/screenshot.png and docs/demo.gif from the demo (needs ffmpeg)
 ```
 
-The demo runs the built card against a simulated Home Assistant: three people walk around a room, one of them sits and lies down. It publishes the same entities as the two ESPHome components, for an LD2450 and an LD6004 on the wall and an LD6004 on the ceiling. URL parameters: `?theme=dark`, `?lang=es`, `?cards=ld2450,ld6004,ceiling`, `?view=plan`.
+The demo runs the built card against a simulated Home Assistant: three people walk around a room, one of them sits and lies down. It publishes the same entities as the two ESPHome components, for an LD2450 and an LD6004 on the wall and an LD6004 on the ceiling. It also answers `callService` like the sensors would (so zone editing works) and `callWS` with simulated history. URL parameters: `?theme=dark`, `?lang=es`, `?cards=ld2450,ld6004,ceiling`, `?view=plan`, and for repeatable runs `seed`, `t` (scene time) and `frozen=1`.
+
+### Browser tests
+
+```bash
+npx playwright install chromium   # once
+npm run test:browser              # interaction tests; screenshot comparisons only run on Linux
+```
+
+[`test/browser/card.spec.js`](test/browser/card.spec.js) checks that the cards render without errors, that the views, tapping, zone dragging (for both sensors), replay, heatmap and the visual editor work, and compares four screenshots. WebGL runs on SwiftShader so the CI runner renders the same frame every time. The screenshot baselines live in `test/browser/__screenshots__` and are made on the CI's Linux runner, because fonts and software rendering differ between systems. After an intentional visual change, regenerate them with **Actions → Browser tests → Run workflow → update screenshots** (or `gh workflow run browser.yml -f update_screenshots=true`), which commits the new baselines.
 
 Layout:
 
-- `src/adapters/`: one file per sensor, mapping its entities to a common model in metres. A new sensor is a new adapter.
-- `src/scene.js`: the three.js scene.
-- `src/mmwave-3d-card.js`: the custom element, table and HA lifecycle.
+- `src/adapters/`: one file per sensor, mapping its entities to a common model in metres and writing zones back. A new sensor is a new adapter.
+- `src/scene.js`: the three.js scene: room, zones and their editing, targets, heatmap layer, picking.
+- `src/history.js`, `src/heatmap.js`: recorder history and time spent per floor cell.
+- `src/editor.js`: the visual editor.
+- `src/mmwave-3d-card.js`: the custom element, modes, table and HA lifecycle.
 
 ### Releasing
 
@@ -244,8 +290,9 @@ It runs the tests, bumps the version in `package.json`, rebuilds `dist/`, adds t
 ## Roadmap
 
 - Check the LD6004 axes, the sign of Z and the ceiling mode with real hardware.
-- Visual editor for the card options.
 - Several sensors in one scene, to compare them or to cover a large room.
+- A "probable pet" rule for the LD6004: low targets outside the places where people lie down.
+- Presets for commercial sensors built on the LD2450 (Everything Presence, Apollo MTR-1, Screek).
 - An LD6001 adapter if anyone uses it.
 
 ## License
