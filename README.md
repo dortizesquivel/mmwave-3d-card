@@ -12,34 +12,36 @@ It supports two Hi-Link radars:
 - **HLK-LD2450**: 24 GHz, X/Y of up to 3 people, through the official ESPHome `ld2450` component.
 - **HLK-LD6004**: 60 GHz, **X/Y/Z** of up to 3 people, through the [`esphome-ld6004`](https://github.com/javierconfoie/esphome-ld6004) external component. With Z the card also shows whether each person is standing, sitting or lying.
 
-![The card with an LD2450 on the wall, an LD6004 on the wall and an LD6004 on the ceiling](docs/screenshot.png)
+![A tour of the card: live 3D, heatmap, zone editing and replay](docs/demo.gif)
 
-![Switching between the 3D, plan and sensor views](docs/demo.gif)
+![An LD2450 on the wall, an LD6004 on the wall and an LD6004 on the ceiling](docs/screenshot.png)
 
-*Both images use the simulated data from the [demo](#development).*
+*All images use the simulated data from the [demo](#development).*
 
 > **Status: early.** The LD2450 adapter follows the entity names from the ESPHome docs. The LD6004 adapter follows the external component's source and example YAML, but it has **not been tested with real hardware yet**: the sign of Z and the axes of the ceiling mode may need adjusting. Please open an issue with your readings if something looks off.
 
+**Contents:** [Features](#features) · [Installation](#installation) · [Quick start](#quick-start) · [Using the card](#using-the-card) · [Configuration reference](#configuration-reference) · [Choosing an HLK sensor](#choosing-an-hlk-sensor) · [Development](#development)
+
 ## Features
 
-- Three views: **3D** (drag to orbit), **Plan** (top-down) and **Sensor** (what the radar sees). The view animates when you switch.
-- **Wall or ceiling mounting.** The LD6004 can read it from its *Install Method* select.
-- **Zones as boxes**, read from the sensor: detection zones light up when someone is inside. Zones the radar ignores (LD6004 interference zones, LD2450 *Filter* zones) are hatched in the theme's error colour and numbered on their own (*Interference 1*, *Excluded 1*); dwell zones have dashed edges.
-- **Height and posture** (LD6004): standing, sitting or lying, with thresholds you can tune.
-- **Your room**: walls, doors and furniture from YAML, so positions read against the real space. Someone lying on a sofa or a bed rests on top of it.
-- **Edit zones by dragging them** in the plan view. The card writes them to the sensor (the LD2450's zone number entities or the LD6004's ESPHome service) and waits for the sensor to confirm. Admins only.
-- **Tap a person or a zone** to open Home Assistant's more-info dialog, with its history. Table rows and zone chips do the same.
-- **Replay and heatmap** from the recorder: play back the last 1, 6 or 24 hours at ×1, ×10 or ×60, or see where people spent their time.
-- **Visual editor** in the dashboard UI, for everything except the room and single-entity overrides.
-- A small **table** with position, height or speed, and zone for each person, plus a chip per zone.
-- **Follows the Home Assistant theme** (light, dark and custom themes), and the UI is in English or Spanish depending on the HA language.
-- **Leaves dashboard scrolling alone**: one finger or the mouse wheel scrolls the page. To zoom, use Ctrl/⌘ + wheel, a trackpad pinch or two fingers.
-- The rendering stops while the card is off screen, and the WebGL context is released when you leave the view.
+- **Three views**: 3D, plan and the sensor's own point of view. [More](#views)
+- **People with height and posture**: with the LD6004, each figure is standing, sitting or lying. [More](#people-height-and-posture)
+- **Visual editor** in the dashboard UI. [More](#visual-editor)
+- **Your room**: walls, doors and furniture, so positions read against the real space. [More](#drawing-your-room)
+- **Edit zones by dragging them**, saved straight to the sensor. [More](#editing-zones)
+- **Tap a person or a zone** to open its more-info dialog. [More](#opening-an-entitys-details)
+- **Replay** the last 1, 6 or 24 hours from the recorder. [More](#replay)
+- **Heatmap** of where people spent their time. [More](#heatmap)
+- **Zones from the sensor**, drawn as boxes: detection zones light up when someone is inside; zones the radar ignores (LD6004 interference, LD2450 *Filter*) are hatched; dwell zones have dashed edges.
+- **Wall or ceiling mounting**; the LD6004 can read it from its *Install Method* select.
+- **Follows the Home Assistant theme** (light, dark and custom themes); the UI is in English or Spanish, following HA's language.
+- **Light on resources**: it stops drawing while off screen and releases its WebGL context when you leave the view. With reduced motion turned on in your system (no radar pulse), it also stops drawing when nothing moves.
 
 ## Requirements
 
 - Home Assistant 2024.11 or newer (the card sizes itself in sections dashboards with `getGridOptions`, added in 2024.11).
 - One of the supported sensors in ESPHome, with the entity names listed under [Entities the card reads](#entities-the-card-reads).
+- For replay and heatmap, the target sensors must be kept by the [recorder](https://www.home-assistant.io/integrations/recorder/).
 
 ## Installation
 
@@ -58,11 +60,9 @@ It supports two Hi-Link radars:
 3. In **Settings → Dashboards → ⋮ → Resources**, add `/local/mmwave-3d-card.js` as a **JavaScript module**.
 4. Reload the browser.
 
-## Configuration
+## Quick start
 
-Add the card from the card picker (it appears as *mmWave 3D Card* and pre-fills the first sensor it finds) or in YAML.
-
-LD2450 on a wall:
+Edit a dashboard, select **Add card** and search for **mmWave 3D Card**. The card fills in the first compatible sensor it finds; adjust the rest in the [visual editor](#visual-editor). In YAML, the minimum is the sensor model and the entity prefix:
 
 ```yaml
 type: custom:mmwave-3d-card
@@ -72,7 +72,7 @@ title: Study
 mount_height: 1.5
 ```
 
-LD6004 on the ceiling, with named zones and tuned posture thresholds:
+An LD6004 on the ceiling, with named zones and tuned posture thresholds:
 
 ```yaml
 type: custom:mmwave-3d-card
@@ -86,6 +86,112 @@ posture:
   sitting: 0.9                   # height (m) below which a person counts as sitting
   lying: 0.4                     # height (m) below which a person counts as lying
 ```
+
+## Using the card
+
+### Views
+
+![The same moment in the 3D, plan and sensor views](docs/images/views.png)
+
+*The same moment in the 3D, plan and sensor views.*
+
+Switch views with the buttons at the bottom left:
+
+- **3D** orbits around the room when you drag.
+- **Plan** looks straight down, with the sensor at the bottom, as if you stood behind it.
+- **Sensor** looks out from the radar.
+
+To zoom, use Ctrl/⌘ and the mouse wheel, pinch on a trackpad, or use two fingers on a touch screen. One finger or the wheel on its own keeps scrolling the dashboard. **Trail** and **Zones**, at the bottom right, show or hide each person's trail and the zones.
+
+### People, height and posture
+
+![LD6004: someone sitting at the desk, and later lying on the sofa](docs/images/posture.png)
+
+*LD6004: someone sitting at the desk (left) and, later, lying on the sofa (right).*
+
+Each person gets a figure, a ring on the floor, a dashed line to the sensor and a label with their distance. The table under the view lists each person's position, speed (LD2450) or height and posture (LD6004), and the zone they are in; the chips under the table show how many people each zone holds.
+
+With the LD6004 the figure follows the person's height: **standing**, **sitting** or **lying**. The card decides from the height above the floor, with thresholds you can change (`posture.sitting`, default 0.95 m, and `posture.lying`, default 0.45 m). The LD2450 has no height, so its figures are always standing and only give scale.
+
+### Visual editor
+
+![The visual editor next to the card it edits](docs/images/editor.png)
+
+*The editor next to the card it edits. This capture comes from the demo, which uses the card's own fallback form; inside Home Assistant the same fields use HA's form controls.*
+
+The editor covers the sensor and its prefix (with the sensors it finds on your system), mounting, range and opening, the initial view, zone names, what to show, and, for the LD6004, posture thresholds and the zone service. The room and single-entity overrides stay in YAML: open the code editor for those.
+
+### Drawing your room
+
+![A room with walls, a door and furniture, in 3D and in plan](docs/images/room.png)
+
+*A room with walls, a door on the right and three pieces of furniture, in 3D and in plan.*
+
+Describe the room under `room:` and the card draws it around the radar. Coordinates are in metres, in the same frame as the sensor: x to its right, y forward (for a ceiling sensor, from the point under it). Walls are the corners of the floor outline, in order; a door is a stretch of wall drawn as an opening; each piece of furniture is a box with a name. Someone lying on a sofa or a bed rests on top of it.
+
+```yaml
+room:
+  wall_height: 2.4                 # default 2.4 m
+  walls: [[-3.2, 0], [3.4, 0], [3.4, 5.8], [-3.2, 5.8]]
+  doors:
+    - { from: [3.4, 4.6], to: [3.4, 5.5] }
+  furniture:
+    - { name: Desk, x: [-1.3, 0.5], y: [0.55, 1.15], height: 0.75 }
+    - { name: Sofa, x: [-2.9, -1.0], y: [3.7, 4.6], height: 0.45 }
+    - { name: Shelf, x: [2.9, 3.35], y: [0.4, 1.9], height: 1.8 }
+```
+
+A quick way to get the numbers: stand in each corner the radar can see for a few seconds and read your position in the card's table.
+
+### Editing zones
+
+![Resizing the desk zone, moving the reading zone, then adding a zone and deleting it](docs/gifs/zone-editing.gif)
+
+*Resizing the desk zone, moving the reading zone, then adding a zone and deleting it.*
+
+1. Select **Edit zones**, at the bottom right. It only appears for admin users. The card switches to the plan view and puts a handle on each corner.
+2. Drag a corner to resize a zone, or drag inside a zone to move it. The label shows its size as you go.
+3. Let go: the change is saved to the sensor. The zone keeps the shape you gave it until the sensor reports it back; if that takes more than 8 seconds, the card says so and draws what the sensor has.
+4. **Add zone** creates a 1 × 1 m zone in the sensor's first free slot. To remove one, tap it and select **Delete zone**.
+5. Select **Done** to go back to the view you had.
+
+How each sensor stores them:
+
+- **LD2450**: the card writes `number.<prefix>_zone_N_x1 … y2` with `number.set_value`, in each entity's unit and within its limits. Whether the zones detect or filter is still set on the device (*Zone Type*).
+- **LD6004**: the card calls `esphome.<node>_set_detection_zone`, the service in the component's example YAML, and keeps each zone's height limits. Zones snap to 10 cm, because the component reports them with one decimal. With one LD6004 the card finds the service by itself; with several, set `zone_service`.
+
+Set `allow_zone_editing: false` to hide the button.
+
+### Opening an entity's details
+
+![Tapping a person and then a zone chip](docs/gifs/more-info.gif)
+
+*Tapping a person, then a zone chip. The demo shows which entity would open; in Home Assistant it's the more-info dialog.*
+
+Tap a person to open the more-info dialog of their X entity, with its history. Tapping a zone, or its chip under the table, opens its occupancy entity (the zone's count or presence sensor), so you can see when it was occupied. Rows in the table work the same way.
+
+### Replay
+
+![Replaying the last hour at ×60 and jumping with the slider](docs/gifs/replay.gif)
+
+*Replaying the last hour at ×60, then jumping ahead with the slider.*
+
+1. Select **Replay**, at the top right.
+2. Choose how far back to go: **1 h**, **6 h** or **24 h**.
+3. Select **Play** and pick the speed: **×1**, **×10** or **×60**. Drag the slider to jump to any moment; the time shows next to it.
+4. Select **Live** to go back to the current readings.
+
+The people, the table and the zone chips show the chosen moment; zones themselves are drawn as they are now. The card reads the target entities with HA's `history/history_during_period`. An LD2450 publishing once a second stores about 86,000 states per entity a day, so 24 hours takes a few seconds to load.
+
+### Heatmap
+
+![Time spent at each spot over the last hour, dark and light themes](docs/images/heatmap.png)
+
+*Time spent at each spot over the last hour, in the dark and light themes.*
+
+Select **Heatmap** and a period. The card adds up how long someone was detected on each 20 cm patch of floor and paints it in blue: the longer, the darker on a light card and the brighter on a dark one. The legend gives the longest time spent in one spot and the total time with someone present. Live people keep moving on top. The plan view reads best.
+
+## Configuration reference
 
 ### Options
 
@@ -111,7 +217,7 @@ posture:
 | `show_table` | boolean | `true` | Table and zone chips under the 3D view |
 | `show_interference` | boolean | `true` | Show the zones the radar ignores: LD6004 interference zones and LD2450 *Filter* zones |
 | `zone_names` | list | `Zone 1`, `Zone 2`… | Names for the detection zones, in order |
-| `room` | object | — | Walls, doors and furniture to draw, see [Room and furniture](#room-and-furniture) |
+| `room` | object | — | Walls, doors and furniture to draw, see [Drawing your room](#drawing-your-room) |
 | `allow_zone_editing` | boolean | `true` | Show the *Edit zones* button (it only appears for admin users) |
 | `zone_service` | string | found automatically | LD6004 only: the ESPHome service that writes zones, e.g. `esphome.hlk_ld6004_set_detection_zone`. Needed when there is more than one LD6004. |
 | `entities.targets` | list | — | Replaces single entities, per target: `[{ x, y, z, speed }, …]` |
@@ -126,32 +232,6 @@ entities:
     - { x: sensor.office_person_1_x, y: sensor.office_person_1_y }
     - { x: sensor.office_person_2_x, y: sensor.office_person_2_y }
 ```
-
-### Room and furniture
-
-Coordinates are in metres in the same frame as the sensor (x to its right, y forward; for a ceiling sensor, relative to the point under it). Walls are the corners of the floor outline, in order; a door is a stretch of wall drawn as an opening; furniture items are boxes.
-
-```yaml
-room:
-  wall_height: 2.4                 # default 2.4 m
-  walls: [[-3.2, 0], [3.4, 0], [3.4, 5.8], [-3.2, 5.8]]
-  doors:
-    - { from: [3.4, 4.6], to: [3.4, 5.5] }
-  furniture:
-    - { name: Desk, x: [-1.3, 0.5], y: [0.55, 1.15], height: 0.75 }
-    - { name: Sofa, x: [-2.9, -1.0], y: [3.7, 4.6], height: 0.45 }
-```
-
-### Editing zones
-
-Select **Edit zones**: the card switches to the plan view and shows a handle on each corner. Drag a zone to move it or a corner to resize it, or use **Add zone** and **Delete zone**. Each change is saved to the sensor when you let go, and the zone stays as you left it until the sensor reports it back (after 8 s without that, the card says so and redraws what the sensor has).
-
-- **LD2450**: writes `number.<prefix>_zone_N_x1 … y2` with `number.set_value`, in the entity's unit and within its min/max. The zone type (*Detection* or *Filter*) is still chosen on the device.
-- **LD6004**: calls `esphome.<node>_set_detection_zone`, the service in the component's example YAML, keeping each zone's height limits. Zones snap to 10 cm because the component reports them with one decimal. With a single LD6004 the card finds the service by itself; with several, set `zone_service`.
-
-### Replay and heatmap
-
-**Replay** and **Heatmap** read the target entities from the recorder with `history/history_during_period`, for the last 1, 6 or 24 hours. If those sensors are excluded from the recorder there is nothing to show, and the card says so. An LD2450 publishing once a second produces about 86,000 states per entity a day, so 24 hours takes a few seconds to load.
 
 ### Entities the card reads
 
@@ -252,7 +332,8 @@ npm test          # adapter and config tests (node:test)
 npm run build     # bundles src/ and three.js into dist/mmwave-3d-card.js
 npm run watch     # rebuilds on change, unminified with source maps
 npm run demo      # serves the repo; open http://localhost:8766/demo/
-npm run docs:capture   # regenerates docs/screenshot.png and docs/demo.gif from the demo (needs ffmpeg)
+npm run docs:capture   # regenerates every README image and GIF from the demo (needs ffmpeg)
+npm run docs:capture -- replay   # only the ones whose name contains "replay"
 ```
 
 The demo runs the built card against a simulated Home Assistant: three people walk around a room, one of them sits and lies down. It publishes the same entities as the two ESPHome components, for an LD2450 and an LD6004 on the wall and an LD6004 on the ceiling. It also answers `callService` like the sensors would (so zone editing works) and `callWS` with simulated history. URL parameters: `?theme=dark`, `?lang=es`, `?cards=ld2450,ld6004,ceiling`, `?view=plan`, and for repeatable runs `seed`, `t` (scene time) and `frozen=1`.
