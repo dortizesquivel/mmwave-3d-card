@@ -106,6 +106,9 @@ export class RadarScene {
     this.tween = null;
     this.running = false;
     this.trailAcc = 0;
+    // Frames are only drawn while something moves or after a change, so an idle card costs nothing.
+    this.dirty = true;
+    this.controls.addEventListener('change', () => { this.dirty = true; });
 
     this.ro = new ResizeObserver(() => this._resize());
     this.ro.observe(container);
@@ -116,6 +119,7 @@ export class RadarScene {
 
   /** layout: { mount: 'wall'|'ceiling', h, range, fov (grados), label } */
   setLayout(layout) {
+    this.dirty = true;
     const changed = JSON.stringify(layout) !== JSON.stringify(this.layout);
     this.layout = layout;
     if (changed && this.theme) {
@@ -125,6 +129,7 @@ export class RadarScene {
   }
 
   setTheme(theme) {
+    this.dirty = true;
     const first = !this.theme;
     this.theme = theme;
     for (const t of this.targets) {
@@ -150,6 +155,7 @@ export class RadarScene {
     const sig = JSON.stringify(room);
     if (sig === this.roomSig) return;
     this.roomSig = sig;
+    this.dirty = true;
     this.room = room;
     if (this.layout && this.theme) {
       this._buildStatic();
@@ -159,6 +165,7 @@ export class RadarScene {
   }
 
   setTrail(seconds, visible) {
+    this.dirty = true;
     this.trailSamples = Math.max(1, Math.round(seconds * TRAIL_HZ));
     this.showTrail = visible;
   }
@@ -167,6 +174,7 @@ export class RadarScene {
 
   /** targets: from buildFrame(); labelFor(t) returns the floating label text. */
   setTargets(targets, labelFor) {
+    this.dirty = true;
     targets.forEach((d, i) => {
       const t = this.targets[i];
       if (!t) return;
@@ -201,6 +209,7 @@ export class RadarScene {
   }
 
   _refreshZones() {
+    this.dirty = true;
     const { zones, names, visible, editable } = this.lastZones;
     this.zoneGroup.visible = visible || this.editing;
     if (!this.theme) return;
@@ -227,6 +236,7 @@ export class RadarScene {
 
   /** map: from buildHeatmap() in the display frame, or null to remove it. */
   setHeatmap(map) {
+    this.dirty = true;
     clearGroup(this.heatGroup);
     this.heatOn = false;
     if (!map || !map.max || !this.theme) return;
@@ -267,6 +277,7 @@ export class RadarScene {
   }
 
   clearTrails() {
+    this.dirty = true;
     for (const t of this.targets) { t.hist = []; this._writeTrail(t); }
   }
 
@@ -399,6 +410,7 @@ export class RadarScene {
 
   setView(name, instant = false) {
     this.view = name;
+    this.dirty = true;
     if (!this.layout) return;
     const p = this._pose(name);
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -506,6 +518,7 @@ export class RadarScene {
     if (!w || !hgt) return;
     this.renderer.setSize(w, hgt);
     this.labels.setSize(w, hgt);
+    this.dirty = true;
     this.camera.aspect = w / hgt;
     this.camera.updateProjectionMatrix();
   }
@@ -773,8 +786,11 @@ export class RadarScene {
     const dt = Math.min((now - this.last) / 1000, 0.1);
     this.last = now;
     const follow = 1 - Math.exp(-dt * 7), fade = 1 - Math.exp(-dt * 5);
+    let animating = !!this.tween;
 
     for (const t of this.targets) {
+      if (t.pos.distanceToSquared(t.goal) > 1e-6 || Math.abs(t.presence - (t.present ? 1 : 0)) > 0.002
+        || Math.abs(t.hl - (t.hover ? 1 : 0)) > 0.002) animating = true;
       t.pos.lerp(t.goal, follow);
       t.presence += ((t.present ? 1 : 0) - t.presence) * fade;
       t.hl += ((t.hover ? 1 : 0) - t.hl) * (1 - Math.exp(-dt * 10));
@@ -806,11 +822,15 @@ export class RadarScene {
         else if (t.hist.length) t.hist.shift();
         while (t.hist.length > this.trailSamples) t.hist.shift();
         this._writeTrail(t);
+        // A trail that still has length keeps changing as it drains.
+        if (t.hist.length > 1 && t.hist[0].distanceToSquared(t.hist[t.hist.length - 1]) > 1e-6) this.trailMoving = true;
       }
     }
+    if (this.trailMoving) { animating = true; this.trailMoving = false; }
 
     for (const z of this.zoneObjs) {
       if (z.isExclude || z.fixed) continue;
+      if (Math.abs(z.on - z.glow) > 0.002) animating = true;
       z.glow += (z.on - z.glow) * fade;
       z.edges.material.color.lerpColors(z.base, z.active, z.glow);
       z.edges.material.opacity = 0.4 + 0.5 * z.glow;
@@ -825,6 +845,7 @@ export class RadarScene {
       const s = (now % 2800) / 2800;
       this.pulse.scale.set(0.3 + s * (r - 0.3), 0.3 + s * (r - 0.3), 1);
       this.pulse.material.opacity = reduced ? 0 : 0.24 * (1 - s);
+      if (!reduced) animating = true;
     }
 
     if (this.tween) {
@@ -840,10 +861,12 @@ export class RadarScene {
         this.controls.enabled = true;
         this.controls.update();
       }
-    } else {
-      this.controls.update();
+    } else if (this.controls.update()) {
+      animating = true;
     }
 
+    if (!animating && !this.dirty) return;
+    this.dirty = false;
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);
   }

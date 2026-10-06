@@ -7,7 +7,8 @@ export default defineConfig({
   timeout: 60_000,
   workers: process.env.CI ? 2 : undefined,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
-  expect: { toHaveScreenshot: { maxDiffPixelRatio: 0.01 } },
+  // Software WebGL is slow on CI runners; give screenshots time to settle.
+  expect: { timeout: 20_000, toHaveScreenshot: { maxDiffPixelRatio: 0.01 } },
   // Baselines are generated on Linux in CI, so they don't need a per-platform suffix.
   snapshotPathTemplate: '{testDir}/__screenshots__/{arg}{ext}',
   use: {
