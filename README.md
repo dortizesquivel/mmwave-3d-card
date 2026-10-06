@@ -33,7 +33,7 @@ It supports two Hi-Link radars:
 
 ## Requirements
 
-- Home Assistant 2024.1 or newer.
+- Home Assistant 2024.11 or newer (the card sizes itself in sections dashboards with `getGridOptions`, added in 2024.11).
 - One of the supported sensors in ESPHome, with the entity names listed under [Entities the card reads](#entities-the-card-reads).
 
 ## Installation
