@@ -48,7 +48,7 @@ It supports two Hi-Link radars:
 
 ### Manual
 
-1. Download `mmwave-3d-card.js` from the [`dist/`](dist/) folder or from the latest release.
+1. Download `mmwave-3d-card.js` from the [latest release](https://github.com/dortizesquivel/mmwave-3d-card/releases/latest).
 2. Copy it to `/config/www/mmwave-3d-card.js`.
 3. In **Settings → Dashboards → ⋮ → Resources**, add `/local/mmwave-3d-card.js` as a **JavaScript module**.
 4. Reload the browser.
@@ -227,7 +227,18 @@ Layout:
 - `src/scene.js`: the three.js scene.
 - `src/mmwave-3d-card.js`: the custom element, table and HA lifecycle.
 
-`dist/` is committed because HACS installs from it. CI checks that it matches the source.
+### Releasing
+
+Releases are made by the [Release workflow](.github/workflows/release.yml), from **Actions → Release → Run workflow** or:
+
+```bash
+gh workflow run release.yml -f bump=patch     # patch | minor | major
+gh workflow run release.yml -f bump=minor -f dry_run=true   # try it without publishing
+```
+
+It runs the tests, bumps the version in `package.json`, rebuilds `dist/`, adds the commits since the last tag to [`CHANGELOG.md`](CHANGELOG.md), commits, tags and publishes a GitHub release with `mmwave-3d-card.js` attached. HACS picks the new version up from there. With `prerelease`, HACS only offers it to users who enable beta versions.
+
+`dist/` on `main` is only rebuilt by releases, so it can lag behind `src/` between them; use `npm run build` locally. Dependabot opens one grouped PR a month for npm and GitHub Actions updates.
 
 ## Roadmap
 

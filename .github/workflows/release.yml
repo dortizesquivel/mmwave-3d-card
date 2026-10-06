@@ -1,0 +1,102 @@
+name: Release
+
+# Run it from Actions → Release → Run workflow, or:
+#   gh workflow run release.yml -f bump=patch        (patch | minor | major)
+# It tests, bumps package.json, rebuilds dist/, updates CHANGELOG.md, commits, tags
+# and publishes a GitHub release with the card attached (HACS installs from it).
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      prerelease:
+        description: Pre-release (HACS only offers it with beta versions enabled)
+        type: boolean
+        default: false
+      dry_run:
+        description: Dry run (build and show the notes, publish nothing)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      BUMP: ${{ inputs.bump }}
+      PRERELEASE: ${{ inputs.prerelease }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Bump version
+        id: version
+        run: |
+          npm version "$BUMP" --no-git-tag-version
+          echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: npm run build
+
+      - name: Release notes and changelog
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            node scripts/release-notes.mjs "$TAG" --dry-run
+          else
+            node scripts/release-notes.mjs "$TAG"
+          fi
+
+      - name: Commit and tag
+        if: inputs.dry_run == false
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json dist/ CHANGELOG.md
+          git commit -m "chore(release): $TAG"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin HEAD:main "$TAG"
+
+      - name: Publish GitHub release
+        if: inputs.dry_run == false
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+          gh release create "$TAG" dist/mmwave-3d-card.js --verify-tag --title "$TAG" \
+            --notes-file release-notes.md "${flags[@]}"
+
+      - name: Summary
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run for **$TAG**: nothing was committed or published." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Published [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG)." >> "$GITHUB_STEP_SUMMARY"
+          fi
