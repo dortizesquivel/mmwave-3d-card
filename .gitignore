@@ -2,3 +2,5 @@ node_modules/
 .DS_Store
 .playwright-mcp/
 release-notes.md
+test-results/
+playwright-report/

@@ -1,0 +1,63 @@
+name: Browser tests
+
+# Runs the built card in the demo against the simulated Home Assistant: interactions, plus screenshot
+# comparisons against the baselines in test/browser/__screenshots__ (made on this same Linux runner).
+# To accept a visual change: Actions → Browser tests → Run workflow with "update screenshots", or
+#   gh workflow run browser.yml -f update_screenshots=true
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      update_screenshots:
+        description: Regenerate the screenshot baselines and commit them
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    env:
+      UPDATE: ${{ inputs.update_screenshots }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: |
+          if [ "$UPDATE" = "true" ]; then
+            npx playwright test --update-snapshots
+          else
+            npx playwright test
+          fi
+
+      - name: Commit updated baselines
+        if: inputs.update_screenshots && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test/browser/__screenshots__
+          if git diff --cached --quiet; then
+            echo "Baselines unchanged."
+          else
+            git commit -m "test: update screenshot baselines"
+            git push origin HEAD:main
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
