@@ -21,6 +21,15 @@ test('form data round-trips and keeps keys the form does not edit', () => {
   assert.deepEqual(fromFormData(data, config), config);
 });
 
+test('the form shows the defaults for the chosen sensor', () => {
+  const ld6004 = toFormData({ device: 'ld6004', prefix: 'x' });
+  assert.equal(ld6004.mount, 'auto');
+  assert.equal(ld6004.max_range, 6);
+  assert.equal(ld6004.invert_x, false);
+  assert.equal(ld6004.posture_lying, 0.45);
+  assert.equal(toFormData({ device: 'ld2450', prefix: 'x' }).mount, 'wall');
+});
+
 test('fromFormData drops defaults and empty values', () => {
   const prev = { type: 'custom:mmwave-3d-card', device: 'ld2450', prefix: 'x', title: 'Old', posture: { lying: 0.4 } };
   const out = fromFormData({ ...toFormData(prev), title: '', show_table: false, zone_names: ' A , ,B ', posture_lying: '' }, prev);

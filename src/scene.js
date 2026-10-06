@@ -665,7 +665,7 @@ export class RadarScene {
       this.pulse = flat(new RingGeometry(0.985, 1, 96, 1, Math.PI / 2 - half, 2 * half), th.accent, 0, 0.006);
     }
     g.add(sensor, this.pulse);
-    g.add(label(`${this.layout.label} · ${this.layout.heightText}`, 'axis', V(0, h + 0.2, 0)));
+    g.add(label(`${this.layout.label} · ${this.layout.heightText}`, 'axis', V(0, h + 0.45, 0)));
     this.sensorEye = sensorEye;
   }
 

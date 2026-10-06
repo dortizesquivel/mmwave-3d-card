@@ -72,16 +72,25 @@ export function editorSchema(config, hass, L) {
   return schema;
 }
 
-const DEFAULTS = { show_trail: true, show_zones: true, show_table: true, show_interference: true, allow_zone_editing: true };
-
-/** Card config → flat form data. */
-export function toFormData(config) {
+/** What the card uses when an option is left out, so the form can show it and the YAML can skip it. */
+function defaultsFor(device) {
+  const d = ADAPTERS[device]?.defaults ?? {};
   return {
-    ...DEFAULTS,
+    show_trail: true, show_zones: true, show_table: true, show_interference: true, allow_zone_editing: true, invert_x: false,
+    mount: d.mount ?? 'wall', mount_height: 1.5, max_range: d.maxRange ?? 6, fov: d.fov ?? 120, view: '3d', height: 380,
+    trail_seconds: 8, posture_sitting: 0.95, posture_lying: 0.45,
+  };
+}
+
+/** Card config → flat form data, with the defaults filled in. */
+export function toFormData(config) {
+  const def = defaultsFor(config.device);
+  return {
+    ...def,
     ...config,
     zone_names: (config.zone_names ?? []).join(', '),
-    posture_sitting: config.posture?.sitting,
-    posture_lying: config.posture?.lying,
+    posture_sitting: config.posture?.sitting ?? def.posture_sitting,
+    posture_lying: config.posture?.lying ?? def.posture_lying,
   };
 }
 
@@ -89,14 +98,19 @@ export function toFormData(config) {
 export function fromFormData(data, previous) {
   const { posture_sitting, posture_lying, zone_names, ...rest } = data;
   const config = { ...previous, ...rest };
+  const def = defaultsFor(config.device);
   const names = String(zone_names ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (names.length) config.zone_names = names; else delete config.zone_names;
   const posture = { ...(previous.posture ?? {}) };
-  if (posture_sitting !== undefined && posture_sitting !== '') posture.sitting = Number(posture_sitting); else delete posture.sitting;
-  if (posture_lying !== undefined && posture_lying !== '') posture.lying = Number(posture_lying); else delete posture.lying;
+  const setPosture = (key, value, fallback) => {
+    if (value === undefined || value === '' || Number(value) === fallback) delete posture[key];
+    else posture[key] = Number(value);
+  };
+  setPosture('sitting', posture_sitting, def.posture_sitting);
+  setPosture('lying', posture_lying, def.posture_lying);
   if (Object.keys(posture).length) config.posture = posture; else delete config.posture;
   for (const [k, v] of Object.entries(config)) {
-    if (v === '' || v === undefined || v === null || DEFAULTS[k] === v) delete config[k];
+    if (v === '' || v === undefined || v === null || def[k] === v) delete config[k];
   }
   return config;
 }
@@ -178,51 +192,95 @@ async function loadHaForm() {
   } catch { /* fall back to the plain form */ }
 }
 
+const FORM_CSS = `
+  .mmwave-form { display: grid; gap: 14px; font: inherit; color: var(--primary-text-color); }
+  .mmwave-form .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .mmwave-form .field { display: grid; gap: 4px; font-size: 12px; color: var(--secondary-text-color); }
+  .mmwave-form input:not([type="checkbox"]), .mmwave-form select {
+    font: inherit; font-size: 14px; color: var(--primary-text-color); background: var(--card-background-color, #fff);
+    border: 1px solid var(--divider-color); border-radius: 6px; padding: 8px 10px; min-height: 38px; width: 100%; box-sizing: border-box; }
+  .mmwave-form input:focus-visible, .mmwave-form select:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+  .mmwave-form .check { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--primary-text-color); }
+  .mmwave-form .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary-color); }
+  .mmwave-form details { border: 1px solid var(--divider-color); border-radius: 8px; padding: 0 14px; }
+  .mmwave-form details[open] { padding-bottom: 14px; }
+  .mmwave-form summary { cursor: pointer; padding: 12px 0; font-size: 14px; font-weight: 500; color: var(--primary-text-color); }
+  .mmwave-form .group { display: grid; gap: 12px; }
+`;
+
+/** A plain form with the same schema, for frontends without <ha-form>: rows for grids, <details> for expandables. */
 function plainForm(schema, data, L, onChange) {
   const form = document.createElement('form');
-  form.style.cssText = 'display: grid; gap: 10px; font: inherit;';
+  form.className = 'mmwave-form';
   form.addEventListener('submit', (e) => e.preventDefault());
-  const leaves = (items) => items.flatMap((s) => (s.schema ? leaves(s.schema) : [s]));
+  const style = document.createElement('style');
+  style.textContent = FORM_CSS;
+  form.append(style);
   const current = { ...data };
-  for (const field of leaves(schema)) {
-    const id = `mmwave-${field.name}`;
+
+  const field = (f) => {
+    const id = `mmwave-${f.name}`;
+    const sel = f.selector;
     const row = document.createElement('label');
     row.htmlFor = id;
-    row.style.cssText = 'display: grid; gap: 4px; font-size: 13px; color: var(--primary-text-color);';
-    row.append(L[field.name] ?? field.name);
-    const sel = field.selector;
     let input;
     if (sel.boolean) {
+      row.className = 'check';
       input = document.createElement('input');
       input.type = 'checkbox';
-      input.checked = current[field.name] !== false;
-      row.style.cssText += 'grid-template-columns: auto 1fr; align-items: center;';
-      row.prepend(input);
-    } else if (sel.select && !sel.select.custom_value) {
-      input = document.createElement('select');
-      for (const o of sel.select.options) input.append(new Option(o.label, o.value, false, o.value === current[field.name]));
-      row.append(input);
+      input.checked = current[f.name] === true;
+      row.append(input, L[f.name] ?? f.name);
     } else {
-      input = document.createElement('input');
-      if (sel.number) Object.assign(input, { type: 'number', min: sel.number.min, max: sel.number.max, step: sel.number.step });
-      if (sel.select?.custom_value) {
-        const list = document.createElement('datalist');
-        list.id = `${id}-list`;
-        for (const o of sel.select.options) list.append(new Option(o.label, o.value));
-        input.setAttribute('list', list.id);
-        row.append(list);
+      row.className = 'field';
+      row.append(L[f.name] ?? f.name);
+      if (sel.select && !sel.select.custom_value) {
+        input = document.createElement('select');
+        for (const o of sel.select.options) input.append(new Option(o.label, o.value, false, o.value === current[f.name]));
+      } else {
+        input = document.createElement('input');
+        if (sel.number) Object.assign(input, { type: 'number', min: sel.number.min, max: sel.number.max, step: sel.number.step });
+        if (sel.select?.custom_value) {
+          const list = document.createElement('datalist');
+          list.id = `${id}-list`;
+          for (const o of sel.select.options) list.append(new Option(o.label, o.value));
+          input.setAttribute('list', list.id);
+          row.append(list);
+        }
+        input.value = current[f.name] ?? '';
       }
-      input.value = current[field.name] ?? '';
       row.append(input);
     }
     input.id = id;
-    input.name = field.name;
+    input.name = f.name;
     input.addEventListener('change', () => {
-      current[field.name] = sel.boolean ? input.checked : sel.number ? (input.value === '' ? '' : Number(input.value)) : input.value;
+      current[f.name] = sel.boolean ? input.checked : sel.number ? (input.value === '' ? '' : Number(input.value)) : input.value;
       onChange({ ...current });
     });
-    form.append(row);
-  }
+    return row;
+  };
+
+  const render = (items, parent) => {
+    for (const s of items) {
+      if (s.type === 'grid') {
+        const row = document.createElement('div');
+        row.className = 'row';
+        render(s.schema, row);
+        parent.append(row);
+      } else if (s.type === 'expandable') {
+        const box = document.createElement('details');
+        const summary = document.createElement('summary');
+        summary.textContent = s.title;
+        const group = document.createElement('div');
+        group.className = 'group';
+        render(s.schema, group);
+        box.append(summary, group);
+        parent.append(box);
+      } else {
+        parent.append(field(s));
+      }
+    }
+  };
+  render(schema, form);
   return form;
 }
 
