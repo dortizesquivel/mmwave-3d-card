@@ -8,6 +8,8 @@ export const ld6004 = {
   label: 'HLK-LD6004',
   hasZ: true,
   hasSpeed: false,       // it only reports an internal Doppler index, not m/s
+  editableKinds: ['detection'],
+  zoneStep: 0.1,         // m; the component reports zones with one decimal, so edits snap to 10 cm
   defaults: { mount: 'auto', maxRange: 6, fov: 120 },
 
   detect(hass) {
@@ -55,13 +57,42 @@ export const ld6004 = {
       parseZones(readText(hass, set.text)).forEach((z, i) => {
         if (!z) return;
         const occupied = set.presence ? readBool(hass, set.presence[i]) : null;
-        zones.push({ id: i + 1, kind: set.kind, ...z, count: null, occupied });
+        zones.push({ id: i + 1, slot: i, kind: set.kind, ...z, count: null, occupied, entity: set.presence?.[i] ?? set.text });
       });
     }
 
     const method = readText(hass, ent.installMethod);   // Top | Side
     const mount = method === 'Top' ? 'ceiling' : method === 'Side' ? 'wall' : null;
     return { targets, zones, mount };
+  },
+
+  /**
+   * Zones are written through the ESPHome service from the component's example YAML,
+   * esphome.<node>_set_detection_zone. The node name can't be derived from the entity prefix,
+   * so it is found automatically when there is only one, or set with `zone_service`.
+   */
+  zoneEditing(hass, ent, cfg) {
+    const services = Object.keys(hass.services?.esphome ?? {});
+    if (cfg.zone_service) {
+      const name = cfg.zone_service.replace(/^esphome\./, '');
+      return services.includes(name) ? { supported: true, service: name, slots: 4 } : { supported: false, reason: 'serviceNotFound' };
+    }
+    const found = services.filter((s) => s.endsWith('_set_detection_zone'));
+    if (found.length === 1) return { supported: true, service: found[0], slots: 4 };
+    return { supported: false, reason: found.length ? 'serviceAmbiguous' : 'serviceNotFound' };
+  },
+
+  /** Writes detection zone `slot` (sensor frame, metres, Z relative to the sensor); null clears it. */
+  writeZone(hass, ent, slot, rect, editing) {
+    const mm = (n) => Math.round(n * 1000) / 1000;      // 1.3 - 1.5 would otherwise send -0.19999999999999996
+    const v = rect
+      ? {
+        x_min: mm(Math.min(rect.x1, rect.x2)), x_max: mm(Math.max(rect.x1, rect.x2)),
+        y_min: mm(Math.min(rect.y1, rect.y2)), y_max: mm(Math.max(rect.y1, rect.y2)),
+        z_min: mm(rect.z1), z_max: mm(rect.z2),
+      }
+      : { x_min: 0, x_max: 0, y_min: 0, y_max: 0, z_min: 0, z_max: 0 };
+    return hass.callService('esphome', editing.service, { zone_index: slot, ...v });
   },
 
   entityIds(ent) {

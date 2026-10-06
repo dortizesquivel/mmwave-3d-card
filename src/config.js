@@ -10,6 +10,37 @@ function num(value, fallback, name) {
   return n;
 }
 
+function point(p, name) {
+  const v = Array.isArray(p) ? p.map(Number) : [];
+  if (v.length !== 2 || !v.every(Number.isFinite)) throw new Error(`"${name}" must be a point like [1.2, 3.4] (metres)`);
+  return v;
+}
+
+function range(r, name) {
+  const v = point(r, name);
+  if (v[0] === v[1]) throw new Error(`"${name}" must span some distance`);
+  return [Math.min(...v), Math.max(...v)];
+}
+
+/** room: { walls: [[x, y], ...], wall_height, doors: [{ from, to }], furniture: [{ name, x: [a, b], y: [a, b], height }] } */
+function normalizeRoom(r) {
+  if (!r) return null;
+  if (typeof r !== 'object') throw new Error('"room" must be an object');
+  const walls = (r.walls ?? []).map((p, i) => point(p, `room.walls[${i}]`));
+  if (walls.length && walls.length < 3) throw new Error('"room.walls" needs at least 3 corners');
+  return {
+    walls,
+    wall_height: num(r.wall_height, 2.4, 'room.wall_height'),
+    doors: (r.doors ?? []).map((d, i) => ({ from: point(d?.from, `room.doors[${i}].from`), to: point(d?.to, `room.doors[${i}].to`) })),
+    furniture: (r.furniture ?? []).map((f, i) => ({
+      name: f?.name ? String(f.name) : '',
+      x: range(f?.x, `room.furniture[${i}].x`),
+      y: range(f?.y, `room.furniture[${i}].y`),
+      height: num(f?.height, 0.75, `room.furniture[${i}].height`),
+    })),
+  };
+}
+
 /** Validates the YAML config and fills in defaults. Throws so HA shows its error card. */
 export function normalizeConfig(c) {
   if (!c || typeof c !== 'object') throw new Error('Invalid configuration');
@@ -45,8 +76,14 @@ export function normalizeConfig(c) {
     show_table: c.show_table !== false,
     show_interference: c.show_interference !== false,
     zone_names: Array.isArray(c.zone_names) ? c.zone_names.map(String) : [],
+    allow_zone_editing: c.allow_zone_editing !== false,
+    zone_service: c.zone_service ? String(c.zone_service) : null,
+    room: normalizeRoom(c.room),
     entities: c.entities ?? null,
   };
+  if (cfg.zone_service && !/^esphome\.[a-z0-9_]+$/.test(cfg.zone_service)) {
+    throw new Error('"zone_service" must look like esphome.<node>_set_detection_zone');
+  }
   if (cfg.mount_height <= 0) throw new Error('"mount_height" must be greater than 0');
   if (cfg.max_range <= 0) throw new Error('"max_range" must be greater than 0');
   if (cfg.fov <= 0 || cfg.fov > 180) throw new Error('"fov" must be between 1 and 180 degrees');

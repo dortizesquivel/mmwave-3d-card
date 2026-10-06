@@ -1,8 +1,9 @@
 import {
-  BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, CapsuleGeometry, CircleGeometry, Color, DirectionalLight, DoubleSide,
-  EdgesGeometry, Fog, Group, HemisphereLight, Line, LineBasicMaterial, LineDashedMaterial, LineSegments, Mesh,
-  MeshBasicMaterial, MeshStandardMaterial, PCFShadowMap, PerspectiveCamera, PlaneGeometry, RingGeometry, Scene,
-  RepeatWrapping, ShadowMaterial, Shape, ShapeGeometry, SphereGeometry, TOUCH, Vector3, WebGLRenderer,
+  BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, CapsuleGeometry, CircleGeometry, Color, CylinderGeometry,
+  DataTexture, DirectionalLight, DoubleSide, EdgesGeometry, Fog, Group, HemisphereLight, Line, LinearFilter, LineBasicMaterial,
+  LineDashedMaterial, LineSegments, Mesh, MeshBasicMaterial, MeshStandardMaterial, PCFShadowMap, PerspectiveCamera, Plane,
+  PlaneGeometry, Raycaster, RepeatWrapping, RGBAFormat, RingGeometry, Scene, ShadowMaterial, Shape, ShapeGeometry,
+  SphereGeometry, SRGBColorSpace, TOUCH, Vector2, Vector3, WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
@@ -15,6 +16,7 @@ const V = (x, y, z) => new Vector3(x, y, z);
 const TRAIL_HZ = 10;
 const ZONE_HEIGHT = 1.0;      // drawn height for zones without Z limits
 const BASE_FOV = 42;
+const MIN_ZONE = 0.2;         // edited zones stay at least 20 cm wide
 
 // Figure per posture. Lying is the standing figure turned 90° onto the floor.
 const POSES = {
@@ -63,11 +65,34 @@ export class RadarScene {
     this.scene.add(this.sun, this.sun.target);
 
     this.staticGroup = new Group();
+    this.roomGroup = new Group();
+    this.heatGroup = new Group();
     this.zoneGroup = new Group();
-    this.scene.add(this.staticGroup, this.zoneGroup);
+    this.scene.add(this.staticGroup, this.roomGroup, this.heatGroup, this.zoneGroup);
     this.zoneObjs = [];
     this.zoneSig = '';
-    this.lastZones = { zones: [], names: [], visible: true };
+    this.lastZones = { zones: [], names: [], visible: true, editable: [] };
+    this.room = null;
+    this.roomSig = '';
+
+    // Tap to pick, drag to edit zones. Callbacks are set by the card.
+    this.onPick = null;          // ({ kind: 'target' | 'zone', index }) => void
+    this.onZoneEdit = null;      // (zone, rect) => void, rect in the display frame (metres)
+    this.onZoneSelect = null;    // (zone | null) => void
+    this.editing = false;
+    this.selectedKey = null;
+    this.drag = null;
+    this.override = null;        // { key, rect } while a dragged zone waits for the sensor to confirm it
+    this.raycaster = new Raycaster();
+    this.floorPlane = new Plane(V(0, 1, 0), 0);
+    this._onDown = (e) => this._pointerDown(e);
+    this._onMove = (e) => this._pointerMove(e);
+    this._onUp = (e) => this._pointerUp(e);
+    const el = this.renderer.domElement;
+    el.addEventListener('pointerdown', this._onDown);
+    el.addEventListener('pointermove', this._onMove);
+    el.addEventListener('pointerup', this._onUp);
+    el.addEventListener('pointercancel', this._onUp);
 
     this.bodyGeo = { standing: new CapsuleGeometry(0.17, 0.9, 6, 18), sitting: new CapsuleGeometry(0.17, 0.42, 6, 18) };
     this.headGeo = new SphereGeometry(0.13, 24, 16);
@@ -113,10 +138,24 @@ export class RadarScene {
     }
     if (this.layout) {
       this._buildStatic();
+      this._buildRoom();
       if (first) this.setView(this.view, true);
     }
     this.zoneSig = '';
-    this.setZones(this.lastZones.zones, this.lastZones.names, this.lastZones.visible);
+    this._refreshZones();
+  }
+
+  /** room: normalised `room` config with x already in the display frame, or null. */
+  setRoom(room) {
+    const sig = JSON.stringify(room);
+    if (sig === this.roomSig) return;
+    this.roomSig = sig;
+    this.room = room;
+    if (this.layout && this.theme) {
+      this._buildStatic();
+      this._buildRoom();
+      this.setView(this.view, true);
+    }
   }
 
   setTrail(seconds, visible) {
@@ -134,7 +173,9 @@ export class RadarScene {
       const was = t.present;
       t.present = d.present;
       if (!d.present) return;
-      t.goal.set(-d.x, 0, d.y);
+      // Someone lying inside a piece of furniture's footprint (a sofa, a bed) lies on top of it.
+      const under = d.posture === 'lying' ? this.room?.furniture.find((f) => d.x >= f.x[0] && d.x <= f.x[1] && d.y >= f.y[0] && d.y <= f.y[1]) : null;
+      t.goal.set(-d.x, under ? under.height : 0, d.y);
       if (!was || t.presence < 0.05) t.pos.copy(t.goal);
       this._applyPose(t, d.posture);
       t.aimY = d.z === null ? 1.1 : Math.min(2.2, Math.max(0.2, d.z));
@@ -142,20 +183,213 @@ export class RadarScene {
     });
   }
 
-  /** zones: from buildFrame(); names: label text for each zone. */
-  setZones(zones, names, visible) {
-    this.lastZones = { zones, names, visible };
-    this.zoneGroup.visible = visible;
+  /** zones: from buildFrame(); names: label text for each zone; editable: per zone, whether it can be dragged. */
+  setZones(zones, names, visible, editable = []) {
+    this.lastZones = { zones, names, visible, editable };
+    // The sensor has confirmed a dragged zone once it reports (almost) the same rectangle.
+    if (this.override) {
+      const z = zones.find((x) => zoneKey(x) === this.override.key);
+      if (z && sameRect(rectOf(z), this.override.rect, (this.layout?.zoneStep ?? 0.05) / 2 + 0.002)) this.override = null;
+    }
+    this._refreshZones();
+  }
+
+  /** Drops a pending drag preview, e.g. when writing it to the sensor failed. */
+  clearOverride() {
+    this.override = null;
+    this._refreshZones();
+  }
+
+  _refreshZones() {
+    const { zones, names, visible, editable } = this.lastZones;
+    this.zoneGroup.visible = visible || this.editing;
     if (!this.theme) return;
-    const sig = JSON.stringify([zones.map((z) => [z.kind, z.x1, z.x2, z.y1, z.y2, z.z1, z.z2]), names]);
+    const shown = zones.map((z) => (this.override && zoneKey(z) === this.override.key ? { ...z, ...this.override.rect } : z));
+    const sig = JSON.stringify([shown.map((z) => [z.kind, z.slot, z.x1, z.x2, z.y1, z.y2, z.z1, z.z2]), names, editable,
+      this.editing, this.selectedKey]);
     if (sig !== this.zoneSig) {
       this.zoneSig = sig;
-      this._buildZones(zones, names);
+      this._buildZones(shown, names, editable);
     }
-    zones.forEach((z, i) => {
+    shown.forEach((z, i) => {
       if (this.zoneObjs[i]) this.zoneObjs[i].on = z.kind === 'detection' && z.occupied ? 1 : 0;
     });
   }
+
+  /** Edit mode: zones can be dragged and resized, and orbiting is off so drags don't turn the camera. */
+  setEditMode(on) {
+    this.editing = on;
+    this.controls.enableRotate = !on;
+    this.controls.enablePan = !on;
+    if (!on) { this.drag = null; this.selectedKey = null; }
+    this._refreshZones();
+  }
+
+  /** map: from buildHeatmap() in the display frame, or null to remove it. */
+  setHeatmap(map) {
+    clearGroup(this.heatGroup);
+    this.heatOn = false;
+    if (!map || !map.max || !this.theme) return;
+    const { cols, rows, cell, x1, y1, values, max } = map;
+    const ramp = this.theme.ramp.map((h) => new Color(h));
+    const data = new Uint8Array(cols * rows * 4);
+    const c = new Color();
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const v = values[j * cols + i];
+        if (!v) continue;
+        const n = Math.pow(v / max, 0.5);
+        const f = n * (ramp.length - 1), k = Math.min(ramp.length - 2, Math.floor(f));
+        c.lerpColors(ramp[k], ramp[k + 1], f - k);
+        const o = (j * cols + (cols - 1 - i)) * 4;   // texture u runs along world X, which is -x
+        const srgb = c.clone().convertLinearToSRGB();
+        data[o] = srgb.r * 255; data[o + 1] = srgb.g * 255; data[o + 2] = srgb.b * 255;
+        data[o + 3] = Math.round(255 * (0.4 + 0.55 * n));
+      }
+    }
+    const tex = new DataTexture(data, cols, rows, RGBAFormat);
+    tex.colorSpace = SRGBColorSpace;
+    tex.magFilter = tex.minFilter = LinearFilter;
+    tex.needsUpdate = true;
+    const w = cols * cell, d = rows * cell;
+    const m = new Mesh(new PlaneGeometry(w, d), new MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: DoubleSide }));
+    m.rotation.x = Math.PI / 2;
+    m.position.set(-(x1 + w / 2), 0.02, y1 + d / 2);   // above the zone fills
+    m.renderOrder = 2;
+    this.heatGroup.add(m);
+    this.heatOn = true;
+  }
+
+  /** Floor area worth mapping, in the display frame: the coverage plus the room. */
+  floorBounds() {
+    const b = this._extent().bounds;
+    return { x1: -b.maxX, x2: -b.minX, y1: b.minZ, y2: b.maxZ };
+  }
+
+  clearTrails() {
+    for (const t of this.targets) { t.hist = []; this._writeTrail(t); }
+  }
+
+  /** Screen position (client px) of target i, or null when it isn't shown. */
+  projectTarget(i) {
+    const t = this.targets[i];
+    if (!t?.g.visible) return null;
+    this.camera.updateMatrixWorld();
+    const v = t.g.position.clone().setY(0.9).project(this.camera);
+    const r = this.renderer.domElement.getBoundingClientRect();
+    return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
+  }
+
+  /** What is under a screen point: a target, then a zone. */
+  pick(clientX, clientY) {
+    this.raycaster.setFromCamera(this._ndc(clientX, clientY), this.camera);
+    const shown = this.targets.filter((t) => t.g.visible && t.presence > 0.3);
+    const hit = this.raycaster.intersectObjects(shown.map((t) => t.hit), false)[0];
+    if (hit) return { kind: 'target', index: this.targets.findIndex((t) => t.hit === hit.object) };
+    if (this.zoneGroup.visible) {
+      const boxes = this.zoneObjs.map((z) => z.pick);
+      const zh = this.raycaster.intersectObjects(boxes, false)[0];
+      if (zh) return { kind: 'zone', index: boxes.indexOf(zh.object) };
+    }
+    return null;
+  }
+
+  // ---------- pointer ----------
+
+  _ndc(clientX, clientY) {
+    this.camera.updateMatrixWorld();         // the camera may have moved since the last rendered frame
+    const r = this.renderer.domElement.getBoundingClientRect();
+    return new Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+  }
+
+  /** Floor point under the pointer, in the display frame. */
+  _floorAt(e) {
+    this.raycaster.setFromCamera(this._ndc(e.clientX, e.clientY), this.camera);
+    const p = new Vector3();
+    return this.raycaster.ray.intersectPlane(this.floorPlane, p) ? { x: -p.x, y: p.z } : null;
+  }
+
+  _editableZones() {
+    const { zones, editable } = this.lastZones;
+    return zones.map((z, i) => ({ z, i, rect: this.override && zoneKey(z) === this.override.key ? this.override.rect : rectOf(z) }))
+      .filter(({ i }) => editable[i]);
+  }
+
+  _pointerDown(e) {
+    if (e.button !== 0) return;
+    this.press = { x: e.clientX, y: e.clientY, t: performance.now() };
+    if (!this.editing) return;
+    const p = this._floorAt(e);
+    if (!p) return;
+    const tol = 0.035 * this.camera.position.distanceTo(this.controls.target);
+    const list = this._editableZones();
+    let hit = null;
+    for (const { z, rect } of list) {
+      for (const [cx, cy, ax, ay] of [[rect.x1, rect.y1, rect.x2, rect.y2], [rect.x2, rect.y1, rect.x1, rect.y2],
+        [rect.x1, rect.y2, rect.x2, rect.y1], [rect.x2, rect.y2, rect.x1, rect.y1]]) {
+        if (Math.hypot(p.x - cx, p.y - cy) < tol) { hit = { z, rect, mode: 'corner', anchor: { x: ax, y: ay } }; break; }
+      }
+      if (hit) break;
+    }
+    if (!hit) {
+      const inside = list.filter(({ rect }) => p.x >= rect.x1 && p.x <= rect.x2 && p.y >= rect.y1 && p.y <= rect.y2)
+        .sort((a, b) => area(a.rect) - area(b.rect))[0];
+      if (inside) hit = { z: inside.z, rect: inside.rect, mode: 'move' };
+    }
+    this.selectedKey = hit ? zoneKey(hit.z) : null;
+    this.onZoneSelect?.(hit ? hit.z : null);
+    this._refreshZones();
+    if (!hit) return;
+    this.drag = { ...hit, start: p, moved: false };
+    this.renderer.domElement.setPointerCapture?.(e.pointerId);
+  }
+
+  _pointerMove(e) {
+    const d = this.drag;
+    if (!d) return;
+    const p = this._floorAt(e);
+    if (!p) return;
+    const step = this.layout?.zoneStep ?? 0.05;
+    const snap = (v) => Math.round(v / step) * step;
+    let rect;
+    if (d.mode === 'move') {
+      const dx = snap(p.x - d.start.x), dy = snap(p.y - d.start.y);
+      rect = { x1: d.rect.x1 + dx, x2: d.rect.x2 + dx, y1: d.rect.y1 + dy, y2: d.rect.y2 + dy };
+    } else {
+      const x = snap(p.x), y = snap(p.y);
+      const x1 = Math.min(d.anchor.x, x), x2 = Math.max(d.anchor.x, x), y1 = Math.min(d.anchor.y, y), y2 = Math.max(d.anchor.y, y);
+      rect = {
+        x1: x2 - x1 < MIN_ZONE ? (x < d.anchor.x ? d.anchor.x - MIN_ZONE : d.anchor.x) : x1,
+        x2: x2 - x1 < MIN_ZONE ? (x < d.anchor.x ? d.anchor.x : d.anchor.x + MIN_ZONE) : x2,
+        y1: y2 - y1 < MIN_ZONE ? (y < d.anchor.y ? d.anchor.y - MIN_ZONE : d.anchor.y) : y1,
+        y2: y2 - y1 < MIN_ZONE ? (y < d.anchor.y ? d.anchor.y : d.anchor.y + MIN_ZONE) : y2,
+      };
+    }
+    rect = roundRect(rect);
+    d.moved = d.moved || !sameRect(rect, d.rect);
+    this.override = { key: zoneKey(d.z), rect };
+    this._refreshZones();
+  }
+
+  _pointerUp(e) {
+    const press = this.press;
+    this.press = null;
+    if (this.drag) {
+      const d = this.drag;
+      this.drag = null;
+      this.renderer.domElement.releasePointerCapture?.(e.pointerId);
+      if (d.moved && this.override) this.onZoneEdit?.(d.z, this.override.rect);
+      else if (!d.moved) this.override = null;
+      this._refreshZones();
+      return;
+    }
+    if (this.editing || !press || e.type === 'pointercancel') return;
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < 6 && performance.now() - press.t < 500) {
+      const hit = this.pick(e.clientX, e.clientY);
+      if (hit) this.onPick?.(hit);
+    }
+  }
+
 
   setHighlight(i, on) {
     if (this.targets[i]) this.targets[i].hover = on;
@@ -185,15 +419,28 @@ export class RadarScene {
     this.controls.enabled = false;
   }
 
+  /** Coverage geometry plus world bounds of everything worth framing (coverage and room). */
   _extent() {
     const { mount, h, range } = this.layout;
     const half = (this.layout.fov / 2) * Math.PI / 180;
+    let e;
     if (mount === 'ceiling') {
       const r = half >= Math.PI / 2 - 0.01 ? range : Math.min(range, h * Math.tan(half));
-      return { half, r, xSpan: 2 * r, zSpan: 2 * r, center: V(0, 0, 0) };
+      e = { half, r, bounds: { minX: -r, maxX: r, minZ: -r, maxZ: r } };
+    } else {
+      const rx = half >= Math.PI / 2 ? range : range * Math.sin(half);
+      e = { half, r: range, rx, bounds: { minX: -rx, maxX: rx, minZ: 0, maxZ: range } };
     }
-    const rx = half >= Math.PI / 2 ? range : range * Math.sin(half);
-    return { half, r: range, rx, xSpan: 2 * rx, zSpan: range, center: V(0, 0, range / 2) };
+    const b = e.bounds;
+    const pts = [...(this.room?.walls ?? []), ...(this.room?.furniture ?? []).flatMap((f) => [[f.x[0], f.y[0]], [f.x[1], f.y[1]]])];
+    for (const [x, y] of pts) {
+      b.minX = Math.min(b.minX, -x); b.maxX = Math.max(b.maxX, -x);
+      b.minZ = Math.min(b.minZ, y); b.maxZ = Math.max(b.maxZ, y);
+    }
+    e.xSpan = b.maxX - b.minX;
+    e.zSpan = b.maxZ - b.minZ;
+    e.center = V((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2);
+    return e;
   }
 
   _pose(name) {
@@ -211,7 +458,7 @@ export class RadarScene {
     }
     const dir = mount === 'ceiling' ? V(-0.55, 0.68, -0.48) : V(-0.32, 0.62, -0.72);
     const target = e.center.clone().add(V(0, 0.3, 0));
-    return { pos: target.clone().add(dir.normalize().multiplyScalar(planD * 0.95)), target, fov: BASE_FOV };
+    return { pos: target.clone().add(dir.normalize().multiplyScalar(planD * 1.05)), target, fov: BASE_FOV };
   }
 
   // ---------- lifecycle ----------
@@ -238,6 +485,11 @@ export class RadarScene {
     this.ro.disconnect();
     this.container.removeEventListener('wheel', this._onWheel, { capture: true });
     this.container.removeEventListener('pointerdown', this._onPointer, { capture: true });
+    const el = this.renderer.domElement;
+    el.removeEventListener('pointerdown', this._onDown);
+    el.removeEventListener('pointermove', this._onMove);
+    el.removeEventListener('pointerup', this._onUp);
+    el.removeEventListener('pointercancel', this._onUp);
     this.controls.dispose();
     this.scene.traverse((o) => {
       o.geometry?.dispose();
@@ -275,7 +527,10 @@ export class RadarScene {
     el.className = 'tag';
     el.innerHTML = `<i></i><b>T${i + 1}</b><span></span>`;
     const label = new CSS2DObject(el);
-    g.add(pivot, ring, disc, label);
+    // Generous invisible cylinder so a person is easy to tap at dashboard sizes.
+    const hit = new Mesh(new CylinderGeometry(0.4, 0.4, 1.8, 12), new MeshBasicMaterial({ visible: false }));
+    hit.position.y = 0.9;
+    g.add(pivot, ring, disc, label, hit);
     g.visible = false;
     this.scene.add(g);
 
@@ -292,7 +547,7 @@ export class RadarScene {
     this.scene.add(trail);
 
     const t = {
-      i, color, g, pivot, body, head, bodyMat, ring, disc, el, label, info: el.querySelector('span'), dot: el.querySelector('i'),
+      i, color, g, pivot, body, head, bodyMat, ring, disc, el, label, hit, info: el.querySelector('span'), dot: el.querySelector('i'),
       ray, trail, trailGeo, hist: [], goal: V(0, 0, 0), pos: V(0, 0, 0), aimY: 1.1,
       present: false, presence: 0, hover: false, hl: 0, pose: null,
     };
@@ -339,11 +594,11 @@ export class RadarScene {
     g.add(ground, catcher);
 
     // 1 m grid
-    const gx = Math.ceil(e.xSpan / 2), z0 = mount === 'ceiling' ? -Math.ceil(e.zSpan / 2) : 0;
-    const z1 = mount === 'ceiling' ? Math.ceil(e.zSpan / 2) : Math.ceil(e.zSpan);
+    const b = e.bounds;
+    const x0 = Math.floor(b.minX), x1 = Math.ceil(b.maxX), z0 = Math.floor(b.minZ), z1 = Math.ceil(b.maxZ);
     const grid = [];
-    for (let x = -gx; x <= gx; x++) grid.push(V(x, 0.002, z0), V(x, 0.002, z1));
-    for (let z = z0; z <= z1; z++) grid.push(V(-gx, 0.002, z), V(gx, 0.002, z));
+    for (let x = x0; x <= x1; x++) grid.push(V(x, 0.002, z0), V(x, 0.002, z1));
+    for (let z = z0; z <= z1; z++) grid.push(V(x0, 0.002, z), V(x1, 0.002, z));
     g.add(segments(grid, gridCol, 1));
 
     const sensorEye = V(0, h, 0);
@@ -376,8 +631,10 @@ export class RadarScene {
       lens.position.z = 0.026;
       housing.position.z = 0.025;
       lens.position.z = 0.051;
-      const wallW = rx + 0.5, wallH = Math.max(2.6, h + 0.4);
-      g.add(line([V(-wallW, 0, 0), V(-wallW, wallH, 0), V(wallW, wallH, 0), V(wallW, 0, 0), V(-wallW, 0, 0)], th.fg2, 0.25));
+      if (!this.room?.walls.length) {     // without a room, a hint of the wall the sensor hangs on
+        const wallW = rx + 0.5, wallH = Math.max(2.6, h + 0.4);
+        g.add(line([V(-wallW, 0, 0), V(-wallW, wallH, 0), V(wallW, wallH, 0), V(wallW, 0, 0), V(-wallW, 0, 0)], th.fg2, 0.25));
+      }
       const shape = new Shape();
       shape.moveTo(0, 0);
       arcPts(r, half, 0).forEach((p) => shape.lineTo(p.x, p.z));
@@ -399,10 +656,74 @@ export class RadarScene {
     this.sensorEye = sensorEye;
   }
 
-  _buildZones(zones, names) {
+  _buildRoom() {
+    clearGroup(this.roomGroup);
+    const r = this.room, th = this.theme;
+    if (!r || !th) return;
+    const g = this.roomGroup;
+    const W = ([x, y], height = 0) => V(-x, height, y);
+
+    if (r.walls.length) {
+      const shape = new Shape();
+      r.walls.forEach(([x, y], i) => (i ? shape.lineTo(-x, y) : shape.moveTo(-x, y)));
+      g.add(flat(new ShapeGeometry(shape), mix(th.bg, th.fg, th.dark ? 0.09 : 0.07), 0.6, 0.003));
+
+      const H = r.wall_height, doorH = Math.min(H, 2.05);
+      const panelMat = new MeshBasicMaterial({ color: th.fg2, transparent: true, opacity: 0.07, depthWrite: false, side: DoubleSide });
+      const edgePts = [], doorPts = [];
+      r.walls.forEach((a, i) => {
+        const bPt = r.walls[(i + 1) % r.walls.length];
+        const A = W(a), B = W(bPt), len = A.distanceTo(B);
+        if (len < 0.01) return;
+        const dir = B.clone().sub(A).divideScalar(len);
+        // Doors on this wall become gaps with a frame.
+        const gaps = r.doors.map((d) => [W(d.from), W(d.to)])
+          .filter(([P, Q]) => distToLine(P, A, dir) < 0.2 && distToLine(Q, A, dir) < 0.2)
+          .map(([P, Q]) => [P.clone().sub(A).dot(dir), Q.clone().sub(A).dot(dir)].sort((m, n) => m - n))
+          .map(([t0, t1]) => [Math.max(0, t0), Math.min(len, t1)])
+          .filter(([t0, t1]) => t1 - t0 > 0.05)
+          .sort((m, n) => m[0] - n[0]);
+        let t = 0;
+        for (const [t0, t1] of [...gaps, [len, len]]) {
+          if (t0 - t > 0.01) {
+            const P = A.clone().addScaledVector(dir, t), Q = A.clone().addScaledVector(dir, t0);
+            const panel = new Mesh(new PlaneGeometry(t0 - t, H), panelMat);
+            panel.position.copy(P.clone().add(Q).multiplyScalar(0.5)).setY(H / 2);
+            panel.rotation.y = -Math.atan2(dir.z, dir.x);
+            g.add(panel);
+            edgePts.push(P.clone().setY(H), Q.clone().setY(H), P.clone().setY(0.004), Q.clone().setY(0.004));
+          }
+          if (t1 > t0) {
+            const P = A.clone().addScaledVector(dir, t0), Q = A.clone().addScaledVector(dir, t1);
+            doorPts.push(P.clone().setY(0), P.clone().setY(doorH), P.clone().setY(doorH), Q.clone().setY(doorH),
+              Q.clone().setY(doorH), Q.clone().setY(0), P.clone().setY(0.006), Q.clone().setY(0.006));
+          }
+          t = Math.max(t, t1);
+        }
+        edgePts.push(A.clone().setY(0), A.clone().setY(H));
+      });
+      g.add(segments(edgePts, th.fg2, 0.45));
+      if (doorPts.length) g.add(segments(doorPts, th.fg, 0.55));
+    }
+
+    const furnCol = mix(th.bg, th.fg, th.dark ? 0.24 : 0.17);
+    for (const f of r.furniture) {
+      const w = f.x[1] - f.x[0], d = f.y[1] - f.y[0];
+      const box = new Mesh(new BoxGeometry(w, f.height, d), new MeshStandardMaterial({ color: furnCol, roughness: 0.9 }));
+      box.position.set(-(f.x[0] + f.x[1]) / 2, f.height / 2, (f.y[0] + f.y[1]) / 2);
+      box.castShadow = box.receiveShadow = true;
+      const edges = new LineSegments(new EdgesGeometry(box.geometry), new LineBasicMaterial({ color: th.fg2, transparent: true, opacity: 0.35 }));
+      edges.position.copy(box.position);
+      g.add(box, edges);
+      if (f.name) g.add(label(f.name, 'flabel', V(box.position.x, f.height + 0.08, box.position.z)));
+    }
+  }
+
+  _buildZones(zones, names, editable = []) {
     clearGroup(this.zoneGroup);
     const th = this.theme;
     const idle = new Color(th.fg2), active = new Color(th.accent), exclude = new Color(th.exclude);
+    const dims = new Intl.NumberFormat(this.layout?.locale ?? 'en', { maximumFractionDigits: 2 });
     this.zoneObjs = zones.map((z, i) => {
       const xa = -z.x1, xb = -z.x2;
       const w = Math.abs(xa - xb), d = Math.abs(z.y1 - z.y2);
@@ -423,9 +744,25 @@ export class RadarScene {
       const edges = new LineSegments(new EdgesGeometry(new BoxGeometry(w, y1 - y0, d)), edgesMat);
       edges.position.set(cx, (y0 + y1) / 2, cz);
       if (z.kind === 'dwell') edges.computeLineDistances();
-      const el = label(names[i] ?? '', 'zlabel', V(cx, y1 + 0.12, cz));
-      this.zoneGroup.add(fill, edges, el);
-      return { fill, edges, el: el.element, base, active, glow: 0, on: 0, isExclude };
+      const canEdit = this.editing && editable[i];
+      const selected = canEdit && zoneKey(z) === this.selectedKey;
+      const text = canEdit ? `${names[i] ?? ''} · ${dims.format(w)} × ${dims.format(d)} m` : names[i] ?? '';
+      const el = label(text, 'zlabel', V(cx, y1 + 0.12, cz));
+      // Invisible box for tapping the zone.
+      const pick = new Mesh(new BoxGeometry(w, y1 - y0, d), new MeshBasicMaterial({ visible: false }));
+      pick.position.copy(edges.position);
+      this.zoneGroup.add(fill, edges, el, pick);
+      if (canEdit) {
+        el.element.dataset.edit = 'true';
+        edges.material.color.copy(active);
+        edges.material.opacity = selected ? 1 : 0.7;
+        for (const [hx, hz] of [[xa, z.y1], [xa, z.y2], [xb, z.y1], [xb, z.y2]]) {
+          const handle = flat(new CircleGeometry(selected ? 0.11 : 0.08, 24), active, 0.95, 0.03);
+          handle.position.set(hx, 0.03, hz);
+          this.zoneGroup.add(handle);
+        }
+      }
+      return { fill, edges, el: el.element, pick, base, active, glow: 0, on: 0, isExclude, fixed: canEdit };
     });
   }
 
@@ -473,12 +810,12 @@ export class RadarScene {
     }
 
     for (const z of this.zoneObjs) {
-      if (z.isExclude) continue;
+      if (z.isExclude || z.fixed) continue;
       z.glow += (z.on - z.glow) * fade;
       z.edges.material.color.lerpColors(z.base, z.active, z.glow);
       z.edges.material.opacity = 0.4 + 0.5 * z.glow;
       z.fill.material.color.lerpColors(z.base, z.active, z.glow);
-      z.fill.material.opacity = 0.07 + 0.1 * z.glow;
+      z.fill.material.opacity = (0.07 + 0.1 * z.glow) * (this.heatOn ? 0.3 : 1);   // let the heatmap show through
       z.el.dataset.on = String(z.on === 1);
     }
 
@@ -592,6 +929,17 @@ function hatched(w, d, color, y) {
   m.rotation.x = Math.PI / 2;
   m.position.y = y;
   return m;
+}
+
+const zoneKey = (z) => `${z.kind}:${z.slot}`;
+const rectOf = (z) => ({ x1: Math.min(z.x1, z.x2), x2: Math.max(z.x1, z.x2), y1: Math.min(z.y1, z.y2), y2: Math.max(z.y1, z.y2) });
+const sameRect = (a, b, tol = 0.011) => ['x1', 'x2', 'y1', 'y2'].every((k) => Math.abs(a[k] - b[k]) < tol);
+const area = (r) => (r.x2 - r.x1) * (r.y2 - r.y1);
+const roundRect = (r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Math.round(v * 1000) / 1000]));
+
+function distToLine(P, A, dir) {
+  const ap = P.clone().sub(A);
+  return ap.sub(dir.clone().multiplyScalar(ap.dot(dir))).length();
 }
 
 function disposeMaterial(m) {

@@ -7,6 +7,10 @@ const TARGETS = {
   dark: ['#3987e5', '#d95926', '#199e70'],
 };
 
+// Heatmap: one sequential blue ramp. "Little time" recedes into the card, so it runs light → dark on a
+// light card and dark → light on a dark one.
+const RAMP = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'];
+
 let probe;
 function rgbOf(value) {
   probe ??= document.createElement('canvas').getContext('2d');
@@ -48,5 +52,6 @@ export function readTheme(el, dark) {
     accent: cssColor(v('--primary-color'), '#03a9f4', bg),
     exclude: cssColor(v('--error-color'), '#db4437', bg),
     targets: dark ? TARGETS.dark : TARGETS.light,
+    ramp: dark ? RAMP.slice(0, -1).reverse() : RAMP,   // on dark cards the darkest step would vanish into the floor
   };
 }
