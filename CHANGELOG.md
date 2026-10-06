@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.0 - 2026-10-06
+
+- test: update screenshot baselines (f0eb6b8)
+- Draw frames only while something moves (be2e1b0)
+- Document the new features and refresh the README images (644719a)
+- Add browser tests and screenshot comparisons in CI (d4c3085)
+- Add room drawing, zone editing, tap for more-info, replay, heatmap and a visual editor (953f853)
+- Bump the actions group with 2 updates (2947d52)
+
 ## v0.1.2 - 2026-10-06
 
 - Require Home Assistant 2024.11, which added getGridOptions (cdf87aa)
