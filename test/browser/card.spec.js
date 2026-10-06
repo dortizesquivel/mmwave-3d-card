@@ -111,7 +111,7 @@ test('heatmap and replay read the recorder history', async ({ page }) => {
 
 test('the visual editor changes the card', async ({ page }) => {
   await openDemo(page, 'cards=ld2450');
-  await page.locator('#editor-box summary').click();
+  await page.locator('#editor-box > summary').click();
   const title = page.locator('#editor input[name="title"]');
   await title.fill('Office');
   await title.dispatchEvent('change');
