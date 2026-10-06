@@ -5,7 +5,7 @@ const STRINGS = {
     nobody: 'Nadie', onePerson: '1 persona', people: (n) => `${n} personas`,
     absent: 'Sin detección', free: 'libre', zoneN: (n) => `Zona ${n}`,
     standing: 'De pie', sitting: 'Sentado', lying: 'Tumbado',
-    filter: 'excluida', interference: 'interferencia', dwell: 'permanencia',
+    kindN: { filter: (n) => `Excluida ${n}`, interference: (n) => `Interferencia ${n}`, dwell: (n) => `Permanencia ${n}` },
     missing: (id) => `No encuentro ${id}. Revisa "prefix" o "entities" en la configuración.`,
     noWebgl: 'Este navegador no puede mostrar WebGL.',
   },
@@ -15,11 +15,17 @@ const STRINGS = {
     nobody: 'Nobody', onePerson: '1 person', people: (n) => `${n} people`,
     absent: 'Not detected', free: 'free', zoneN: (n) => `Zone ${n}`,
     standing: 'Standing', sitting: 'Sitting', lying: 'Lying',
-    filter: 'excluded', interference: 'interference', dwell: 'dwell',
+    kindN: { filter: (n) => `Excluded ${n}`, interference: (n) => `Interference ${n}`, dwell: (n) => `Dwell ${n}` },
     missing: (id) => `Cannot find ${id}. Check "prefix" or "entities" in the card config.`,
     noWebgl: 'This browser cannot display WebGL.',
   },
 };
+
+/** Label for a zone: detection zones use `names` or "Zone N"; the other kinds have their own numbering. */
+export function zoneName(zone, t, names = []) {
+  if (zone.kind === 'detection') return names[zone.id - 1] || t.zoneN(zone.id);
+  return t.kindN[zone.kind]?.(zone.id) ?? t.zoneN(zone.id);
+}
 
 export function strings(language) {
   return language?.startsWith('es') ? STRINGS.es : STRINGS.en;

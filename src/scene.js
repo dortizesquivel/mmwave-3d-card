@@ -1,8 +1,8 @@
 import {
-  BoxGeometry, BufferAttribute, BufferGeometry, CapsuleGeometry, CircleGeometry, Color, DirectionalLight, DoubleSide,
+  BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, CapsuleGeometry, CircleGeometry, Color, DirectionalLight, DoubleSide,
   EdgesGeometry, Fog, Group, HemisphereLight, Line, LineBasicMaterial, LineDashedMaterial, LineSegments, Mesh,
   MeshBasicMaterial, MeshStandardMaterial, PCFShadowMap, PerspectiveCamera, PlaneGeometry, RingGeometry, Scene,
-  ShadowMaterial, Shape, ShapeGeometry, SphereGeometry, TOUCH, Vector3, WebGLRenderer,
+  RepeatWrapping, ShadowMaterial, Shape, ShapeGeometry, SphereGeometry, TOUCH, Vector3, WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
@@ -241,7 +241,7 @@ export class RadarScene {
     this.controls.dispose();
     this.scene.traverse((o) => {
       o.geometry?.dispose();
-      if (o.material) [].concat(o.material).forEach((m) => m.dispose());
+      if (o.material) [].concat(o.material).forEach(disposeMaterial);
     });
     this.renderer.dispose();
     this.renderer.forceContextLoss();
@@ -412,7 +412,10 @@ export class RadarScene {
       const isExclude = z.kind === 'filter' || z.kind === 'interference';
       const base = isExclude ? exclude : idle;
 
-      const fill = flat(new PlaneGeometry(w, d), base, isExclude ? 0.1 : 0.07, 0.008 + i * 0.001);
+      // Excluded zones get diagonal hatching so they read as "ignored" at a glance.
+      const fill = isExclude
+        ? hatched(w, d, base, 0.008 + i * 0.001)
+        : flat(new PlaneGeometry(w, d), base, 0.07, 0.008 + i * 0.001);
       fill.position.set(cx, fill.position.y, cz);
       const edgesMat = z.kind === 'dwell'
         ? new LineDashedMaterial({ color: base, dashSize: 0.1, gapSize: 0.07, transparent: true, opacity: 0.6 })
@@ -564,12 +567,44 @@ function circlePts(r, y, n = 96) {
   });
 }
 
+let stripeCanvas;
+function hatched(w, d, color, y) {
+  if (!stripeCanvas) {
+    // One 64 px tile of 45° stripes that repeats seamlessly; the material colour tints it.
+    stripeCanvas = document.createElement('canvas');
+    stripeCanvas.width = stripeCanvas.height = 64;
+    const g = stripeCanvas.getContext('2d');
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = 16;
+    for (const x of [-64, 0, 64]) {
+      g.beginPath();
+      g.moveTo(x, 64);
+      g.lineTo(x + 64, 0);
+      g.stroke();
+    }
+  }
+  const tex = new CanvasTexture(stripeCanvas);
+  tex.wrapS = tex.wrapT = RepeatWrapping;
+  tex.repeat.set(w / 0.16, d / 0.16);         // one stripe every ~11 cm
+  const m = new Mesh(new PlaneGeometry(w, d), new MeshBasicMaterial({
+    color, map: tex, transparent: true, opacity: 0.65, depthWrite: false, side: DoubleSide,
+  }));
+  m.rotation.x = Math.PI / 2;
+  m.position.y = y;
+  return m;
+}
+
+function disposeMaterial(m) {
+  m.map?.dispose();
+  m.dispose();
+}
+
 function clearGroup(group) {
   group.traverse((o) => {
     if (o.isCSS2DObject) o.element.remove();
     if (o === group) return;
     o.geometry?.dispose();
-    if (o.material) [].concat(o.material).forEach((m) => m.dispose());
+    if (o.material) [].concat(o.material).forEach(disposeMaterial);
   });
   group.clear();
 }

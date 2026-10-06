@@ -11,6 +11,8 @@ test('fills device defaults', () => {
   assert.equal(c.view, '3d');
   assert.equal(c.z_offset, null);
   assert.deepEqual(c.posture, { sitting: 0.95, lying: 0.45 });
+  assert.equal(c.show_interference, true);
+  assert.equal(normalizeConfig({ device: 'ld6004', prefix: 'radar', show_interference: false }).show_interference, false);
   assert.equal(normalizeConfig({ device: 'ld2450', prefix: 'x' }).mount, 'wall');
 });
 

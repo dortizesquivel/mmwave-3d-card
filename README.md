@@ -24,7 +24,7 @@ It supports two Hi-Link radars:
 
 - Three views: **3D** (drag to orbit), **Plan** (top-down) and **Sensor** (what the radar sees). The view animates when you switch.
 - **Wall or ceiling mounting.** The LD6004 can read it from its *Install Method* select.
-- **Zones as boxes**, read from the sensor: they light up when someone is inside. LD2450 *Filter* zones and LD6004 interference zones show as excluded areas.
+- **Zones as boxes**, read from the sensor: detection zones light up when someone is inside. Zones the radar ignores (LD6004 interference zones, LD2450 *Filter* zones) are hatched in the theme's error colour and numbered on their own (*Interference 1*, *Excluded 1*); dwell zones have dashed edges.
 - **Height and posture** (LD6004): standing, sitting or lying, with thresholds you can tune.
 - A small **table** with position, height or speed, and zone for each person, plus a chip per zone.
 - **Follows the Home Assistant theme** (light, dark and custom themes), and the UI is in English or Spanish depending on the HA language.
@@ -104,6 +104,7 @@ posture:
 | `show_trail` | boolean | `true` | Trail visible at start (there is also a button) |
 | `show_zones` | boolean | `true` | Zones visible at start (there is also a button) |
 | `show_table` | boolean | `true` | Table and zone chips under the 3D view |
+| `show_interference` | boolean | `true` | Show the zones the radar ignores: LD6004 interference zones and LD2450 *Filter* zones |
 | `zone_names` | list | `Zone 1`, `Zone 2`… | Names for the detection zones, in order |
 | `entities.targets` | list | — | Replaces single entities, per target: `[{ x, y, z, speed }, …]` |
 
@@ -129,7 +130,7 @@ The card converts units from `unit_of_measurement` (mm, cm or m), so it also wor
 | `sensor.<prefix>_target_{1-3}_x`, `_y` | Position (mm) |
 | `sensor.<prefix>_target_{1-3}_speed` | Speed (mm/s) |
 | `number.<prefix>_zone_{1-3}_x1`, `_y1`, `_x2`, `_y2` | Zones (mm). All-zero zones are skipped. |
-| `select.<prefix>_zone_type` | `Detection` or `Filter` (drawn as excluded); `Disabled` hides the zones |
+| `select.<prefix>_zone_type` | `Detection`, or `Filter` (hatched, shown as *Excluded N*); `Disabled` hides the zones |
 | `sensor.<prefix>_zone_{1-3}_all_target_count` | Zone occupancy. If it is missing, the card works it out from the positions. |
 
 **HLK-LD6004** ([`esphome-ld6004`](https://github.com/javierconfoie/esphome-ld6004)). It counts a target as absent when it reads `unknown` (the component publishes NaN).
@@ -138,7 +139,7 @@ The card converts units from `unit_of_measurement` (mm, cm or m), so it also wor
 |---|---|
 | `sensor.<prefix>_target_{0-2}_x`, `_y`, `_z` | Position and height (m, Z relative to the sensor) |
 | `sensor.<prefix>_detection_zones` | Detection zones (JSON text sensor, 3D boxes) |
-| `sensor.<prefix>_interference_zones`, `_dwell_zones` | Interference zones (drawn as excluded) and dwell zones (dashed) |
+| `sensor.<prefix>_interference_zones`, `_dwell_zones` | Interference zones (hatched) and dwell zones (dashed edges) |
 | `binary_sensor.<prefix>_zone_{0-3}_presence` | Occupancy of each detection zone |
 | `select.<prefix>_install_method` | `Side` / `Top`, for `mount: auto` |
 

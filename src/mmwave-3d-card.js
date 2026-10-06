@@ -1,6 +1,6 @@
 import { buildFrame, detectDevices, getAdapter, resolveEntities } from './adapters/index.js';
 import { normalizeConfig, VIEWS } from './config.js';
-import { strings } from './i18n.js';
+import { strings, zoneName } from './i18n.js';
 import { RadarScene } from './scene.js';
 import { readTheme } from './theme.js';
 
@@ -64,6 +64,8 @@ const STYLE = `
 `;
 
 const THEME_VARS = ['--ha-card-background', '--card-background-color', '--primary-text-color', '--primary-color', '--divider-color'];
+
+const EXCLUDED = new Set(['filter', 'interference']);
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
@@ -272,6 +274,8 @@ class MmwaveRadar3dCard extends HTMLElement {
       zOffset: c.z_offset ?? c.mount_height,
       posture: c.posture,
     });
+    // Zones the radar ignores (LD6004 interference, LD2450 Filter) can be hidden on their own.
+    const shown = c.show_interference ? frame : { ...frame, zones: frame.zones.filter((z) => !EXCLUDED.has(z.kind)) };
     const firstX = this._entities.targets[0]?.x;
     this._setStatus(firstX && !hass.states[firstX] ? this._t.missing(firstX) : null);
 
@@ -291,16 +295,14 @@ class MmwaveRadar3dCard extends HTMLElement {
         label: this._adapter.label,
         heightText: `${this._fmt.m1.format(c.mount_height)} m`,
       });
-      scene.setZones(frame.zones, frame.zones.map((z) => this._zoneName(z)), this._ui.zones);
+      scene.setZones(shown.zones, shown.zones.map((z) => this._zoneName(z)), this._ui.zones);
       scene.setTargets(frame.targets, (t) => this._targetLabel(t));
     }
-    this._renderReadout(frame);
+    this._renderReadout(shown);
   }
 
   _zoneName(z) {
-    const t = this._t;
-    if (z.kind === 'detection') return this._config.zone_names[z.id - 1] || t.zoneN(z.id);
-    return `${t.zoneN(z.id)} · ${t[z.kind]}`;
+    return zoneName(z, this._t, this._config.zone_names);
   }
 
   _targetLabel(target) {

@@ -43,6 +43,7 @@ export function normalizeConfig(c) {
     show_trail: c.show_trail !== false,
     show_zones: c.show_zones !== false,
     show_table: c.show_table !== false,
+    show_interference: c.show_interference !== false,
     zone_names: Array.isArray(c.zone_names) ? c.zone_names.map(String) : [],
     entities: c.entities ?? null,
   };
