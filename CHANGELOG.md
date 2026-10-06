@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.2 - 2026-10-06
+
+- Require Home Assistant 2024.11, which added getGridOptions (cdf87aa)
+
 ## v0.1.1 - 2026-10-06
 
 - Hatch interference zones and give them their own names (a59e32c)
