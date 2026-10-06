@@ -1,0 +1,33 @@
+{
+  "name": "mmwave-3d-card",
+  "version": "0.1.0",
+  "description": "3D Lovelace card (three.js) for HLK-LD2450 and HLK-LD6004 mmWave presence radars",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dortizesquivel/mmwave-3d-card.git"
+  },
+  "keywords": [
+    "home-assistant",
+    "lovelace",
+    "hacs",
+    "mmwave",
+    "ld2450",
+    "ld6004",
+    "threejs"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "test": "node --test \"test/**/*.test.js\"",
+    "demo": "python3 -m http.server 8766"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

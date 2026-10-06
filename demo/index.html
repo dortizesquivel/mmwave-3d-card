@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mmWave 3D Card · demo</title>
+<style>
+  /* Home Assistant's default theme variables, so the card renders as it would on a dashboard. */
+  :root {
+    --primary-background-color: #fafafa; --card-background-color: #ffffff; --primary-text-color: #212121;
+    --secondary-text-color: #727272; --disabled-text-color: #bdbdbd; --divider-color: rgba(0, 0, 0, .12);
+    --primary-color: #03a9f4; --text-primary-color: #ffffff; --error-color: #db4437;
+  }
+  :root[data-theme="dark"] {
+    --primary-background-color: #111111; --card-background-color: #1c1c1c; --primary-text-color: #e1e1e1;
+    --secondary-text-color: #9b9b9b; --disabled-text-color: #6f6f6f; --divider-color: rgba(225, 225, 225, .12);
+  }
+  html, body { background: var(--primary-background-color); color: var(--primary-text-color); }
+  body { margin: 0; font: 14px/1.5 Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px 0; }
+  h1 { font-size: 18px; font-weight: 500; margin: 0; }
+  .controls { display: flex; gap: 8px; }
+  .controls button { font: inherit; color: var(--primary-text-color); background: var(--card-background-color);
+    border: 1px solid var(--divider-color); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; padding: 16px 20px 32px; }
+  body.capture header { display: none; }
+  body.capture main { padding: 12px; grid-template-columns: minmax(0, 1fr); }
+</style>
+</head>
+<body>
+<header>
+  <h1>mmWave 3D Card · simulated data</h1>
+  <div class="controls">
+    <button type="button" id="theme">Toggle theme</button>
+    <button type="button" id="lang">Español / English</button>
+    <button type="button" id="pause">Pause</button>
+  </div>
+</header>
+<main id="cards"></main>
+
+<script type="module">
+  import './ha-card.js';
+  import '../dist/mmwave-3d-card.js';
+  import { Sim } from './sim.js';
+
+  // ?theme=dark&lang=en&cards=ld2450,ld6004,ceiling&capture=1
+  const q = new URLSearchParams(location.search);
+  const CARDS = {
+    ld2450: { device: 'ld2450', prefix: 'kin_estudio_piscina', title: 'Study · HLK-LD2450', mount_height: 1.5 },
+    ld6004: { device: 'ld6004', prefix: 'radar_ld6004', title: 'Study · HLK-LD6004', mount_height: 1.5 },
+    ceiling: { device: 'ld6004', prefix: 'radar_techo', title: 'Study · HLK-LD6004 on the ceiling', mount_height: 2.7 },
+  };
+  let dark = q.get('theme') === 'dark';
+  let lang = q.get('lang') ?? 'en';
+  let playing = true;
+  document.body.classList.toggle('capture', q.has('capture'));
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+
+  const sim = new Sim();
+  const hassFor = () => ({ states: sim.states, themes: { darkMode: dark, theme: 'default' }, locale: { language: lang }, language: lang });
+
+  const cards = (q.get('cards') ?? 'ld2450,ld6004,ceiling').split(',').map((key) => {
+    const el = document.createElement('mmwave-3d-card');
+    el.setConfig({ type: 'custom:mmwave-3d-card', ...CARDS[key], ...(q.get('view') ? { view: q.get('view') } : {}) });
+    el.hass = hassFor();
+    document.getElementById('cards').append(el);
+    return el;
+  });
+
+  const apply = () => {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    const hass = hassFor();
+    cards.forEach((c) => { c.hass = hass; });
+  };
+  apply();
+
+  let last = performance.now();
+  setInterval(() => {
+    const now = performance.now();
+    if (playing) sim.advance((now - last) / 1000);
+    last = now;
+    const hass = hassFor();
+    cards.forEach((c) => { c.hass = hass; });
+  }, 100);
+
+  document.getElementById('theme').onclick = () => { dark = !dark; apply(); };
+  document.getElementById('lang').onclick = () => { lang = lang === 'en' ? 'es' : 'en'; apply(); };
+  document.getElementById('pause').onclick = (e) => { playing = !playing; e.target.textContent = playing ? 'Pause' : 'Play'; };
+  window.demo = { sim, cards };
+</script>
+</body>
+</html>
