@@ -20,7 +20,203 @@ It supports two Hi-Link radars:
 
 > **Status: early.** The LD2450 adapter follows the entity names from the ESPHome docs. The LD6004 adapter follows the external component's source and example YAML, but it has **not been tested with real hardware yet**: the sign of Z and the axes of the ceiling mode may need adjusting. Please open an issue with your readings if something looks off.
 
-**Contents:** [Features](#features) · [Installation](#installation) · [Quick start](#quick-start) · [Using the card](#using-the-card) · [Configuration reference](#configuration-reference) · [Choosing an HLK sensor](#choosing-an-hlk-sensor) · [Development](#development)
+**Contents:** [Requirements](#requirements) · [Installation](#installation) · [Features](#features) · [Quick start](#quick-start) · [Using the card](#using-the-card) · [Configuration reference](#configuration-reference) · [Choosing an HLK sensor](#choosing-an-hlk-sensor) · [Development](#development)
+
+## Requirements
+
+- **Home Assistant 2024.11 or newer.**
+- **[HACS](https://hacs.xyz/)**, to install and update the card from Home Assistant. Without it, [install the card manually](#manual).
+- **The sensor in [ESPHome](https://esphome.io/)**, with the entity names the card looks for. The YAML [below](#setting-up-the-sensor-in-esphome) gives them those names.
+- **A browser with WebGL 2**: any current browser and the Home Assistant apps. Very old wall tablets may lack it; the card then says so.
+- **To edit zones**: an admin user and, on the LD6004, the zone services in its ESPHome YAML (included below).
+- **For replay and heatmap**: the target sensors kept by the [recorder](https://www.home-assistant.io/integrations/recorder/). They are, unless you excluded them.
+
+### Setting up the sensor in ESPHome
+
+The card finds the entities from a **prefix**: the device's name the way Home Assistant writes it in entity ids. For `sensor.kin_estudio_piscina_target_1_x` the prefix is `kin_estudio_piscina`. Keep the entity names below so the ids end the way the card expects. If yours are named differently, point the card at them with [`entities.targets`](#options).
+
+<details>
+<summary><b>HLK-LD2450</b>, with the official <a href="https://esphome.io/components/sensor/ld2450/"><code>ld2450</code></a> component</summary>
+
+```yaml
+uart:
+  id: uart_ld2450
+  tx_pin: GPIO17               # your board's pins
+  rx_pin: GPIO16
+  baud_rate: 256000
+  parity: NONE
+  stop_bits: 1
+
+ld2450:
+  id: ld2450_radar
+  uart_id: uart_ld2450
+
+sensor:
+  - platform: ld2450
+    ld2450_id: ld2450_radar
+    target_1:
+      x: { name: Target-1 X }
+      y: { name: Target-1 Y }
+      speed: { name: Target-1 Speed }
+    target_2:
+      x: { name: Target-2 X }
+      y: { name: Target-2 Y }
+      speed: { name: Target-2 Speed }
+    target_3:
+      x: { name: Target-3 X }
+      y: { name: Target-3 Y }
+      speed: { name: Target-3 Speed }
+    zone_1:
+      target_count: { name: Zone-1 All Target Count }
+    zone_2:
+      target_count: { name: Zone-2 All Target Count }
+    zone_3:
+      target_count: { name: Zone-3 All Target Count }
+
+number:
+  - platform: ld2450
+    ld2450_id: ld2450_radar
+    zone_1:
+      x1: { name: Zone-1 X1 }
+      y1: { name: Zone-1 Y1 }
+      x2: { name: Zone-1 X2 }
+      y2: { name: Zone-1 Y2 }
+    zone_2:
+      x1: { name: Zone-2 X1 }
+      y1: { name: Zone-2 Y1 }
+      x2: { name: Zone-2 X2 }
+      y2: { name: Zone-2 Y2 }
+    zone_3:
+      x1: { name: Zone-3 X1 }
+      y1: { name: Zone-3 Y1 }
+      x2: { name: Zone-3 X2 }
+      y2: { name: Zone-3 Y2 }
+
+select:
+  - platform: ld2450
+    ld2450_id: ld2450_radar
+    zone_type: { name: Zone Type }
+```
+
+The zone counts are optional: without them the card works out occupancy from the positions. The zone numbers and *Zone Type* are what lets it draw and edit zones.
+
+</details>
+
+<details>
+<summary><b>HLK-LD6004</b>, with the external <a href="https://github.com/javierconfoie/esphome-ld6004"><code>esphome-ld6004</code></a> component</summary>
+
+Taken from the component's example YAML. The LD6004 draws up to 1 A at 3.3 V, so give it its own regulator ([why](#ld6004-vs-ld6001-in-detail)).
+
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/javierconfoie/esphome-ld6004
+      ref: main
+    components: [hlk_ld6004]
+
+uart:
+  id: uart_ld6004
+  tx_pin: GPIO21               # your board's pins
+  rx_pin: GPIO20
+  baud_rate: 115200
+
+hlk_ld6004:
+  id: ld6004
+  uart_id: uart_ld6004
+
+sensor:
+  - platform: hlk_ld6004
+    hlk_ld6004_id: ld6004
+    target0_x: { name: Target 0 X }
+    target0_y: { name: Target 0 Y }
+    target0_z: { name: Target 0 Z }
+    target1_x: { name: Target 1 X }
+    target1_y: { name: Target 1 Y }
+    target1_z: { name: Target 1 Z }
+    target2_x: { name: Target 2 X }
+    target2_y: { name: Target 2 Y }
+    target2_z: { name: Target 2 Z }
+
+binary_sensor:
+  - platform: hlk_ld6004
+    hlk_ld6004_id: ld6004
+    zone0_presence: { name: Zone 0 Presence }
+    zone1_presence: { name: Zone 1 Presence }
+    zone2_presence: { name: Zone 2 Presence }
+    zone3_presence: { name: Zone 3 Presence }
+
+text_sensor:
+  - platform: hlk_ld6004
+    hlk_ld6004_id: ld6004
+    detection_zones: { name: Detection Zones }
+    interference_zones: { name: Interference Zones }
+    dwell_zones: { name: Dwell Zones }
+
+select:
+  - platform: hlk_ld6004
+    hlk_ld6004_id: ld6004
+    install_method: { name: Install Method }
+
+# Only needed to edit zones from the card. Add these to your existing api: block.
+api:
+  services:
+    - service: set_detection_zone
+      variables: { zone_index: int, x_min: float, x_max: float, y_min: float, y_max: float, z_min: float, z_max: float }
+      then:
+        - lambda: |-
+            id(ld6004).send_set_detection_zone(zone_index, x_min, x_max, y_min, y_max, z_min, z_max);
+    - service: set_interference_zone
+      variables: { zone_index: int, x_min: float, x_max: float, y_min: float, y_max: float, z_min: float, z_max: float }
+      then:
+        - lambda: |-
+            id(ld6004).send_set_interference_zone(zone_index, x_min, x_max, y_min, y_max, z_min, z_max);
+    - service: set_dwell_zone
+      variables: { zone_index: int, x_min: float, x_max: float, y_min: float, y_max: float, z_min: float, z_max: float }
+      then:
+        - lambda: |-
+            id(ld6004).send_set_dwell_zone(zone_index, x_min, x_max, y_min, y_max, z_min, z_max);
+```
+
+In Home Assistant these become `esphome.<node>_set_detection_zone` and so on, where `<node>` is the ESPHome `name:` with dashes turned into underscores (`hlk-ld6004` → `hlk_ld6004`). The card finds them by itself when there is one LD6004; with several, set [`zone_service`](#options).
+
+</details>
+
+## Installation
+
+### Via HACS (recommended)
+
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dortizesquivel&repository=mmwave-3d-card&category=plugin)
+
+The button opens this repository in HACS on your own Home Assistant. If HACS doesn't have it yet, it offers to add it: confirm with type **Dashboard**, then select **Download**.
+
+Or by hand:
+
+1. In Home Assistant, open **HACS** from the sidebar.
+2. Select the menu (⋮) at the top right → **Custom repositories**.
+3. Paste `https://github.com/dortizesquivel/mmwave-3d-card` in **Repository**, choose **Dashboard** as the **Type** and select **Add**.
+4. Close that dialog, search for **mmWave 3D Card**, open it and select **Download**.
+5. Reload the browser, then add the card to a dashboard: see [Quick start](#quick-start).
+
+HACS registers the card as a dashboard resource for you. If your dashboards are in YAML mode, add it yourself in `configuration.yaml`:
+
+```yaml
+lovelace:
+  resources:
+    - url: /hacsfiles/mmwave-3d-card/mmwave-3d-card.js
+      type: module
+```
+
+**Updates:** new versions show up in HACS and under **Settings → Updates**. Install the update and reload the browser.
+
+The card is waiting for review to join HACS's default list. Until it's accepted, it is added as a custom repository (steps 2 and 3 above).
+
+### Manual
+
+1. Download `mmwave-3d-card.js` from the [latest release](https://github.com/dortizesquivel/mmwave-3d-card/releases/latest).
+2. Copy it to `/config/www/mmwave-3d-card.js`.
+3. In **Settings → Dashboards → ⋮ → Resources**, add `/local/mmwave-3d-card.js` as a **JavaScript module**.
+4. Reload the browser.
 
 ## Features
 
@@ -36,29 +232,6 @@ It supports two Hi-Link radars:
 - **Wall or ceiling mounting**; the LD6004 can read it from its *Install Method* select.
 - **Follows the Home Assistant theme** (light, dark and custom themes); the UI is in English or Spanish, following HA's language.
 - **Light on resources**: it stops drawing while off screen and releases its WebGL context when you leave the view. With reduced motion turned on in your system (no radar pulse), it also stops drawing when nothing moves.
-
-## Requirements
-
-- Home Assistant 2024.11 or newer (the card sizes itself in sections dashboards with `getGridOptions`, added in 2024.11).
-- One of the supported sensors in ESPHome, with the entity names listed under [Entities the card reads](#entities-the-card-reads).
-- For replay and heatmap, the target sensors must be kept by the [recorder](https://www.home-assistant.io/integrations/recorder/).
-
-## Installation
-
-### HACS (recommended)
-
-1. Open **HACS** in Home Assistant.
-2. Open the menu (⋮) in the top right → **Custom repositories**.
-3. Add `https://github.com/dortizesquivel/mmwave-3d-card` with type **Dashboard**.
-4. Search for **mmWave 3D Card** and select **Download**.
-5. Reload the browser. HACS registers the dashboard resource for you (on dashboards managed from the UI).
-
-### Manual
-
-1. Download `mmwave-3d-card.js` from the [latest release](https://github.com/dortizesquivel/mmwave-3d-card/releases/latest).
-2. Copy it to `/config/www/mmwave-3d-card.js`.
-3. In **Settings → Dashboards → ⋮ → Resources**, add `/local/mmwave-3d-card.js` as a **JavaScript module**.
-4. Reload the browser.
 
 ## Quick start
 
