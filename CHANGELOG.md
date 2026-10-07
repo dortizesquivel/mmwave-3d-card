@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.0 - 2026-10-07
+
+- test: update screenshot baselines (c8b9c81)
+- Document the per-person heatmap and refresh its images (e618a59)
+- Colour the heatmap by person and keep replay's layout still (d2773e9)
+- Fix the README screenshot: the ceiling card was captured off screen (1679847)
+- Document drawing zones and the LD6004 zone kinds (4bc7264)
+- Draw new zones on the floor and edit every LD6004 zone kind (1e3ecff)
+- test: target the editor panel's own summary (6294dfd)
+- Add a usage guide with images and GIFs for each feature (7843595)
+- Fix the fallback editor's checkboxes and show defaults in the editor (6d61104)
+
 ## v0.2.0 - 2026-10-06
 
 - test: update screenshot baselines (f0eb6b8)
