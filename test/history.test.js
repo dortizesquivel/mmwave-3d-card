@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { indexAt, parseHistory, historySpan, statesAt } from '../src/history.js';
-import { blur, buildHeatmap, combine } from '../src/heatmap.js';
+import { fetchHistory, indexAt, parseHistory, historySpan, statesAt } from '../src/history.js';
+import { blur, buildHeatmap, buildRingHeatmap, combine } from '../src/heatmap.js';
 
 test('parseHistory reads compressed and full states, sorted by time', () => {
   const h = parseHistory({
@@ -65,4 +65,37 @@ test('combine paints each cell with the target that spent most time there, and h
 test('blur spreads a point to its neighbours', () => {
   const src = new Float32Array(9); src[4] = 16;
   assert.deepEqual([...blur(src, 3, 3)], [1, 2, 1, 2, 4, 2, 1, 2, 1]);
+});
+
+test('fetchHistory asks the recorder for minimal states of the ids and parses them', async () => {
+  let sent;
+  const hass = { callWS: async (msg) => { sent = msg; return { 'sensor.a': [{ s: '1', lu: 5 }] }; } };
+  const start = new Date('2026-10-07T08:00:00Z'), end = new Date('2026-10-07T09:00:00Z');
+  const h = await fetchHistory(hass, ['sensor.a', 'sensor.b'], start, end);
+  assert.deepEqual(sent, {
+    type: 'history/history_during_period', start_time: start.toISOString(), end_time: end.toISOString(),
+    entity_ids: ['sensor.a', 'sensor.b'], minimal_response: true, no_attributes: true, significant_changes_only: false,
+  });
+  assert.deepEqual(h.get('sensor.a'), { t: [5000], s: ['1'] });
+  assert.deepEqual(h.get('sensor.b'), { t: [], s: [] });
+});
+
+test('buildRingHeatmap adds up time per distance bin, moving and still apart', () => {
+  const map = buildRingHeatmap({
+    start: 0, end: 10000, step: 1000, bin: 0.75, maxRange: 4.5,
+    sampleAt: (t) => [
+      { id: 1, present: t < 4000, distance: 1.0 },          // moving, 4 s in bin 1
+      { id: 2, present: true, distance: t < 5000 ? 2.0 : null },   // still, 5 s in bin 2, then no distance
+      { id: 2, present: true, distance: 9 },                // beyond the range: ignored
+    ],
+  });
+  assert.equal(map.rings, true);
+  assert.equal(map.cols, 6);
+  assert.equal(map.rows, 1);
+  assert.deepEqual(map.totals, [4, 5]);
+  assert.equal(map.layers[0][1], 4);
+  assert.equal(map.layers[1][2], 5);
+  const both = combine(map, [true, true]);
+  assert.deepEqual([...both.owner].slice(0, 3), [0, 0, 1]);    // bin 1 is movement's, bin 2 the still target's
+  assert.equal(combine(map, [false, true]).total, 5);
 });

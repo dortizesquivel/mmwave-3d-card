@@ -2,6 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![GitHub release](https://img.shields.io/github/v/release/dortizesquivel/mmwave-3d-card?include_prereleases)](https://github.com/dortizesquivel/mmwave-3d-card/releases)
+[![CI](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/ci.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/ci.yml)
 [![Validate](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/validate.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/validate.yml)
 [![License: MIT](https://img.shields.io/github/license/dortizesquivel/mmwave-3d-card)](LICENSE)
 
@@ -657,7 +658,8 @@ The antenna-count argument comes from radar theory, not from a measurement.
 
 ```bash
 npm ci
-npm test          # adapter and config tests (node:test)
+npm test          # unit tests (node:test): adapters, config, editor, history, heatmap, texts
+npm run test:coverage   # the same, failing below 85 % of lines and branches or 90 % of functions
 npm run build     # bundles src/ and three.js into dist/mmwave-3d-card.js
 npm run watch     # rebuilds on change, unminified with source maps
 npm run demo      # serves the repo; open http://localhost:8766/demo/
@@ -674,7 +676,17 @@ npx playwright install chromium   # once
 npm run test:browser              # interaction tests; screenshot comparisons only run on Linux
 ```
 
-[`test/browser/card.spec.js`](test/browser/card.spec.js) checks that the cards render without errors, that the views, tapping, zone dragging (for both sensors), replay, heatmap and the visual editor work, and compares four screenshots. WebGL runs on SwiftShader so the CI runner renders the same frame every time. The screenshot baselines live in `test/browser/__screenshots__` and are made on the CI's Linux runner, because fonts and software rendering differ between systems. After an intentional visual change, regenerate them with **Actions → Browser tests → Run workflow → update screenshots** (or `gh workflow run browser.yml -f update_screenshots=true`), which commits the new baselines.
+[`test/browser/card.spec.js`](test/browser/card.spec.js) runs the built card in the demo: rendering without errors, views, tapping people, zones and rows, zone editing on both sensors, replay, heatmap, the LD2410's beam, animations and tilt, the layer buttons, Spanish, missing entities, the options that hide things, admin-only editing, themes, rooms, the card picker, releasing WebGL off screen, reduced motion and the visual editor; it also compares five screenshots. WebGL runs on SwiftShader so the CI runner renders the same frame every time. The screenshot baselines live in `test/browser/__screenshots__` and are made on the CI's Linux runner, because fonts and software rendering differ between systems. After an intentional visual change, regenerate them with **Actions → Screenshot baselines → Run workflow** (or `gh workflow run browser.yml -f update_screenshots=true`), which commits the new baselines.
+
+### Continuous integration and pull requests
+
+`main` is protected: changes go in through a pull request, and it can only be merged when the [CI workflow](.github/workflows/ci.yml) passes on it, up to date with `main`:
+
+- **Unit tests**: `npm run test:coverage` and the build.
+- **Browser tests**: the Playwright tests above, screenshots included.
+- **HACS**: the [HACS validation](.github/workflows/validate.yml), which also runs every week.
+
+Only the release and the screenshot-baseline workflows push to `main` directly, with a deploy key (the `DEPLOY_KEY` secret), the ruleset's only bypass.
 
 Layout:
 

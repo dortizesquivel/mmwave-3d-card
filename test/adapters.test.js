@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildFrame, classifyPosture, detectDevices, getAdapter, resolveEntities } from '../src/adapters/index.js';
 import { parseZones } from '../src/adapters/ld6004.js';
+import { readBool } from '../src/adapters/common.js';
 
 const st = (state, unit) => ({ state: String(state), attributes: unit ? { unit_of_measurement: unit } : {} });
 const opts = { invertX: false, zOffset: 1.5, posture: { sitting: 0.95, lying: 0.45 } };
@@ -250,4 +251,32 @@ test('LD2410: 0.2 m resolution and gate energies in engineering mode', () => {
 test('detectDevices finds LD2410s by their distance sensors', () => {
   const hass = { states: { ...ld2410States('hall'), ...ld2450States('estudio') } };
   assert.deepEqual(detectDevices(hass), [{ device: 'ld2450', prefix: 'estudio' }, { device: 'ld2410', prefix: 'hall' }]);
+});
+
+test('every adapter lists the entities it reads, with no gaps', () => {
+  const a2450 = getAdapter('ld2450'), a6004 = getAdapter('ld6004'), a2410 = getAdapter('ld2410');
+  const ids2450 = a2450.entityIds(resolveEntities(a2450, { prefix: 'p' }));
+  assert.ok(ids2450.includes('sensor.p_target_1_x') && ids2450.includes('sensor.p_target_3_speed'));
+  assert.ok(ids2450.includes('number.p_zone_3_y2') && ids2450.includes('select.p_zone_type'));
+  const ids6004 = a6004.entityIds(resolveEntities(a6004, { prefix: 'p' }));
+  assert.ok(ids6004.includes('sensor.p_target_0_z') && ids6004.includes('sensor.p_target_2_x'));
+  const ent2410 = resolveEntities(a2410, { prefix: 'p' });
+  const ids2410 = a2410.entityIds(ent2410);
+  assert.deepEqual(a2410.historyIds(ent2410), [
+    'sensor.p_moving_distance', 'sensor.p_move_energy', 'binary_sensor.p_moving_target',
+    'sensor.p_still_distance', 'sensor.p_still_energy', 'binary_sensor.p_still_target',
+  ]);
+  assert.ok(ids2410.includes('switch.p_engineering_mode') && ids2410.includes('number.p_g8_still_threshold'));
+  for (const ids of [ids2450, ids6004, ids2410]) {
+    assert.ok(ids.length > 0);
+    assert.ok(ids.every((id) => typeof id === 'string' && /^[a-z_]+\.p_/.test(id)), 'no undefined or foreign ids');
+  }
+});
+
+test('readBool: on and off, anything else is unknown', () => {
+  const hass = { states: { 'b.on': { state: 'on' }, 'b.off': { state: 'off' }, 'b.na': { state: 'unavailable' } } };
+  assert.equal(readBool(hass, 'b.on'), true);
+  assert.equal(readBool(hass, 'b.off'), false);
+  assert.equal(readBool(hass, 'b.na'), null);
+  assert.equal(readBool(hass, 'b.missing'), null);
 });
