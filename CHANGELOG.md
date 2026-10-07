@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.0 - 2026-10-07
+
+- Support the HLK-LD2410 as a distance-only sensor (bb0d889)
+- README: requirements and installation first, with ESPHome setup and an Open in HACS button (16ab4f0)
+
 ## v0.3.0 - 2026-10-07
 
 - test: update screenshot baselines (c8b9c81)
