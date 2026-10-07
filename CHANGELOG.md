@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.0 - 2026-10-07
+
+- test: update screenshot baselines (09b3ffc)
+- LD2410: the beam in 3D and animated detections; a gallery with each sensor (b755233)
+
 ## v0.4.0 - 2026-10-07
 
 - Support the HLK-LD2410 as a distance-only sensor (bb0d889)
