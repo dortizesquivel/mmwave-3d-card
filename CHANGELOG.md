@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.0 - 2026-10-07
+
+- Replay: skip quiet time, an activity strip and ×600 (#3) (515f662)
+
 ## v0.6.0 - 2026-10-07
 
 - CI: unit and browser tests on every pull request; more tests (#2) (36b028b)
