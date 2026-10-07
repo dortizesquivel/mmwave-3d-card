@@ -185,6 +185,13 @@ const ASSETS = {
     compose(files, 'docs/images/room.png', { theme: 'light', width: 1600 });
   },
 
+  // An LD2410: distance arcs, limits and the energy per gate.
+  async ld2410() {
+    const { ctx, card } = await open({ query: 't=45&frozen=1&cards=ld2410', width: 760 });
+    await card.screenshot({ path: 'docs/images/ld2410.png' });
+    await ctx.close();
+  },
+
   // The visual editor next to the card it edits.
   async editor() {
     const { ctx, page } = await open({ query: 't=48&frozen=1&cards=ld6004&editor=1', width: 1180, height: 1180 });

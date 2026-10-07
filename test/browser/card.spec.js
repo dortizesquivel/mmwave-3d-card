@@ -10,7 +10,9 @@ async function openDemo(page, query = '') {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('favicon')) errors.push(m.text()); });
   await page.clock.setFixedTime(FIXED_NOW);
-  await page.goto(`/demo/?seed=1&t=48&frozen=1&${query}`);
+  const params = new URLSearchParams({ seed: '1', t: '48', frozen: '1' });
+  for (const [k, v] of new URLSearchParams(query)) params.set(k, v);     // the test's own values win
+  await page.goto(`/demo/?${params}`);
   await page.waitForFunction(() => window.demo?.cards?.length && window.demo.cards.every((c) => c._scene));
   await page.waitForTimeout(1000);          // let the figures settle on their positions
   return errors;
@@ -29,13 +31,13 @@ function floorPoint(cardEl, x, y) {
   }, [x, y]);
 }
 
-test('renders the three demo cards with live data', async ({ page }) => {
+test('renders the four demo cards with live data', async ({ page }) => {
   const errors = await openDemo(page);
-  await expect(page.locator('mmwave-3d-card')).toHaveCount(3);
-  for (let i = 0; i < 3; i++) {
-    await expect(card(page, i).locator('canvas')).toBeVisible();
-    await expect(card(page, i).locator('tbody tr')).toHaveCount(3);
-  }
+  await expect(page.locator('mmwave-3d-card')).toHaveCount(4);
+  for (let i = 0; i < 4; i++) await expect(card(page, i).locator('canvas')).toBeVisible();
+  for (let i = 0; i < 3; i++) await expect(card(page, i).locator('tbody tr')).toHaveCount(3);
+  await expect(card(page, 3).locator('thead th')).toHaveText(['Detection', 'Distance', 'Energy', 'Gate']);
+  await expect(card(page, 3).locator('tbody tr')).toHaveText([/^Moving/, /^Still/]);
   await expect(card(page, 0).locator('thead th')).toHaveText(['Target', 'Position (m)', 'Speed', 'Zone']);
   await expect(card(page, 1).locator('thead th')).toHaveText(['Target', 'Position (m)', 'Height', 'Posture', 'Zone']);
   await expect(card(page, 0).locator('.chip')).toHaveText('3 people');
@@ -46,12 +48,12 @@ test('renders the three demo cards with live data', async ({ page }) => {
 
 test('a card off screen draws nothing until it is scrolled into view', async ({ page }) => {
   await page.setViewportSize({ width: 760, height: 700 });
-  await openDemo(page, 'capture=1');                       // one column: the third card starts below the window
+  await openDemo(page, 'capture=1');                       // one column: the last card starts below the window
   const frames = (i) => card(page, i).evaluate((el) => el._scene.framesDrawn);
   expect(await frames(0)).toBeGreaterThan(0);
-  expect(await frames(2)).toBe(0);
-  await card(page, 2).scrollIntoViewIfNeeded();
-  await expect.poll(() => frames(2)).toBeGreaterThan(0);
+  expect(await frames(3)).toBe(0);
+  await card(page, 3).scrollIntoViewIfNeeded();
+  await expect.poll(() => frames(3)).toBeGreaterThan(0);
 });
 
 test('view buttons move the camera', async ({ page }) => {
@@ -255,6 +257,44 @@ test('replay keeps the table and its controls still while playing', async ({ pag
   expect(times.size).toBeGreaterThan(3);              // it really was playing
 });
 
+test('the LD2410 card shows its detection, the energy per gate and engineering mode', async ({ page }) => {
+  await openDemo(page, 'cards=ld2410&t=45');
+  const c = card(page);
+  await expect(c.locator('.chip')).toHaveText('Presence');
+  const moving = c.locator('tbody tr').first();
+  await expect(moving).toContainText(/\d\.\d\d m/);
+  await expect(moving).toContainText(/G\d/);
+  const gate = (await moving.locator('td').last().textContent()).trim();
+  await expect(c.locator('.glabels .here')).toContainText(gate);       // the chart marks the gate it is in
+  await expect(c.locator('.gcol')).toHaveCount(9);
+  await expect(c.locator('.gbar.off')).toHaveCount(6);                 // gates 6–8 are beyond the 4.5 m limits
+  expect(await c.evaluate((el) => el._scene.arcs.moving.present)).toBe(true);
+  expect(await page.evaluate(() => window.demo.calls.length)).toBe(0);
+
+  await c.locator('[data-act="engineering"]').click();                 // it was on in the demo
+  await expect.poll(() => page.evaluate(() => window.demo.calls.at(-1))).toMatchObject({ domain: 'switch', service: 'turn_off',
+    data: { entity_id: 'switch.esp32_pasillo_engineering_mode' } });
+  await page.evaluate(() => { window.demo.sim.advance(1); window.demo.push(); });
+  await expect(c.locator('.gates .note')).toContainText("Turn on the sensor's engineering mode");
+  await expect(c.locator('.gbar b')).toHaveCount(0);                   // no energies, thresholds only
+  await expect(c.locator('.gbar i')).toHaveCount(18);
+});
+
+test('the LD2410 heatmap and replay work by distance', async ({ page }) => {
+  await openDemo(page, 'cards=ld2410');
+  const c = card(page);
+  await expect(c.locator('[data-act="edit"]')).toBeHidden();             // no zones on this sensor
+  await c.locator('[data-mode="heatmap"]').click();
+  await expect(c.locator('.heat-chip')).toHaveText([/^Moving · /, /^Still · /]);
+  expect(await c.evaluate((el) => el._scene.heatOn)).toBe(true);
+  await c.locator('[data-mode="replay"]').click();
+  await expect(c.locator('.panel input[type="range"]')).toBeVisible();
+  await c.locator('[data-speed="60"]').click();
+  const before = await c.locator('tbody').textContent();
+  await c.locator('[data-act="play"]').click();
+  await expect.poll(() => c.locator('tbody').textContent()).not.toBe(before);
+});
+
 test('the visual editor changes the card', async ({ page }) => {
   await openDemo(page, 'cards=ld2450');
   await page.locator('#editor-box > summary').click();
@@ -268,9 +308,14 @@ test('the visual editor changes the card', async ({ page }) => {
 test.describe('screenshots', () => {
   test.skip(!compareScreenshots, 'screenshot baselines are made on Linux in CI');
 
-  test('three cards, dark theme', async ({ page }) => {
+  test('all demo cards, dark theme', async ({ page }) => {
     await openDemo(page, 'theme=dark');
     await expect(page.locator('main')).toHaveScreenshot('overview-dark.png');
+  });
+
+  test('LD2410 with its gate chart, light theme', async ({ page }) => {
+    await openDemo(page, 'theme=light&cards=ld2410&t=45&capture=1');
+    await expect(card(page)).toHaveScreenshot('ld2410-light.png');
   });
 
   test('LD6004 with a room, light theme, plan view', async ({ page }) => {

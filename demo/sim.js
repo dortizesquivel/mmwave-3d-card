@@ -41,6 +41,13 @@ function mulberry32(seed) {
   };
 }
 
+// LD2410 on the same wall (prefix esp32_pasillo, like the real one): ESPHome's default thresholds,
+// 0.75 m gates, detecting up to gate 6 (4.5 m) for movement and for still targets.
+const LD2410 = {
+  prefix: 'esp32_pasillo', res: 0.75, maxGate: 6, half: Math.PI / 3,
+  move: [50, 50, 40, 30, 20, 15, 15, 15, 15], still: [0, 0, 40, 40, 30, 30, 20, 20, 20],
+};
+
 const st = (state, unit, extra = {}) => ({ state: String(state), attributes: { ...(unit ? { unit_of_measurement: unit } : {}), ...extra } });
 const MM = { min: -6000, max: 6000, step: 1 };
 
@@ -121,6 +128,17 @@ export class Sim {
       s[`${p}_y2`] = st(Math.round(z.y2 * 1000), 'mm', MM);
     });
     s['select.kin_estudio_piscina_zone_type'] = st('Detection');
+    const p2410 = LD2410.prefix;
+    for (let g = 0; g < 9; g++) {
+      s[`number.${p2410}_g${g}_move_threshold`] = st(LD2410.move[g], '%', { min: 0, max: 100, step: 1 });
+      s[`number.${p2410}_g${g}_still_threshold`] = st(LD2410.still[g], '%', { min: 0, max: 100, step: 1 });
+    }
+    s[`number.${p2410}_max_move_distance_gate`] = st(LD2410.maxGate, null, { min: 2, max: 8, step: 1 });
+    s[`number.${p2410}_max_still_distance_gate`] = st(LD2410.maxGate, null, { min: 2, max: 8, step: 1 });
+    s[`select.${p2410}_distance_resolution`] = st('0.75m', null, { options: ['0.2m', '0.75m'] });
+    s[`switch.${p2410}_engineering_mode`] = st('on');
+    s[`sensor.${p2410}_moving_distance`] = st(0, 'cm');
+    s[`sensor.${p2410}_still_distance`] = st(0, 'cm');
     for (const { prefix, dy, h, method } of Object.values(LD6004_NODES)) {
       s[`sensor.${prefix}_detection_zones`] = st(zoneJson(ZONES, dy, h));
       s[`sensor.${prefix}_interference_zones`] = st(zoneJson([FAN], dy, h));
@@ -139,7 +157,7 @@ export class Sim {
       const ld6004 = this.coarse ? tick % 10 === 0 : tick % 2 === 0;
       const ld2450 = this.coarse ? tick % 10 === 0 : tick % 5 === 0;
       if (ld6004) this._publishLd6004();
-      if (ld2450) this._publishLd2450();
+      if (ld2450) { this._publishLd2450(); this._publishLd2410(); }
       if ((ld6004 || ld2450) && this.onPublish) this.onPublish(this.states, this.clock);
     }
   }
@@ -183,6 +201,37 @@ export class Sim {
     this.states = s;
   }
 
+  /** One moving and one still target (the nearest of each), gate energies peaking at each person's distance. */
+  _publishLd2410() {
+    const s = { ...this.states }, p = LD2410.prefix, cfg = LD2410;
+    const seen = this.people.map((q) => ({ q, d: Math.hypot(q.x, q.y), a: Math.atan2(q.x, q.y) }))
+      .filter(({ q, d, a }) => q.present && Math.abs(a) <= cfg.half && d <= cfg.maxGate * cfg.res);
+    const moving = seen.filter(({ q }) => q.act.walk).sort((m, n) => m.d - n.d);
+    const still = seen.filter(({ q }) => !q.act.walk).sort((m, n) => m.d - n.d);
+    const energy = (d) => Math.max(20, Math.min(100, 100 - d * 14 + this.gauss() * 4));
+    const pub = (kind, list, energyKey) => {
+      const on = list.length > 0;
+      s[`binary_sensor.${p}_${kind}_target`] = st(on ? 'on' : 'off');
+      // Like the real sensor, the distance keeps its last value when the target goes away.
+      if (on) s[`sensor.${p}_${kind}_distance`] = st(Math.round((list[0].d + this.gauss() * 0.12) * 100), 'cm');
+      s[`sensor.${p}_${energyKey}_energy`] = st(on ? Math.round(energy(list[0].d) * (kind === 'still' ? 0.55 : 1)) : Math.round(this.rng() * 5), '%');
+    };
+    pub('moving', moving, 'move');
+    pub('still', still, 'still');
+    s[`binary_sensor.${p}_presence`] = st(moving.length || still.length ? 'on' : 'off');
+    const nearest = [...moving, ...still].sort((m, n) => m.d - n.d)[0];
+    s[`sensor.${p}_detection_distance`] = st(nearest ? Math.round(nearest.d * 100) : 0, 'cm');
+    const engineering = s[`switch.${p}_engineering_mode`].state === 'on';
+    for (let g = 0; g < 9; g++) {
+      const c = (g + 0.5) * cfg.res;
+      const peak = (list, scale) => list.reduce((m, { d }) => Math.max(m, scale * energy(d) * Math.exp(-((d - c) ** 2) / (2 * 0.45 ** 2))), 0);
+      const noise = () => 2 + this.rng() * 6;
+      s[`sensor.${p}_g${g}_move_energy`] = st(engineering ? Math.round(Math.min(100, peak(moving, 1) + noise())) : 'unknown', '%');
+      s[`sensor.${p}_g${g}_still_energy`] = st(engineering ? Math.round(Math.min(100, peak(still, 0.6) + noise())) : 'unknown', '%');
+    }
+    this.states = s;
+  }
+
   _publishLd6004() {
     const s = { ...this.states };
     for (const node of Object.values(LD6004_NODES)) {
@@ -208,7 +257,11 @@ export class Sim {
   /** What HA's number.set_value and the component's esphome.<node>_set_detection_zone would do. */
   callService(domain, service, data) {
     const s = { ...this.states };
-    if (domain === 'number' && service === 'set_value') {
+    if (domain === 'switch' && (service === 'turn_on' || service === 'turn_off')) {
+      const old = s[data.entity_id];
+      if (!old) throw new Error(`Unknown entity ${data.entity_id}`);
+      s[data.entity_id] = { ...old, state: service === 'turn_on' ? 'on' : 'off' };
+    } else if (domain === 'number' && service === 'set_value') {
       const old = s[data.entity_id];
       if (!old) throw new Error(`Unknown entity ${data.entity_id}`);
       s[data.entity_id] = { ...old, state: String(data.value) };

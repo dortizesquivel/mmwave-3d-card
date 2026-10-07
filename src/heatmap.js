@@ -25,6 +25,28 @@ export function buildHeatmap({ start, end, step, cell, bounds, sampleAt, targets
 }
 
 /**
+ * 1D version for distance-only sensors: time per distance bin (metres), one layer per kind
+ * (moving, still). sampleAt(t) returns [{ id: 1 | 2, present, distance }]. Works with combine().
+ */
+export function buildRingHeatmap({ start, end, step, bin, maxRange, sampleAt }) {
+  const bins = Math.max(1, Math.ceil(maxRange / bin));
+  const raw = [new Float32Array(bins), new Float32Array(bins)];
+  const totals = [0, 0];
+  const dt = step / 1000;
+  for (let t = start; t < end; t += step) {
+    for (const p of sampleAt(t)) {
+      const k = p.id - 1;
+      if (!p.present || k < 0 || k > 1 || p.distance === null) continue;
+      const i = Math.floor(p.distance / bin);
+      if (i < 0 || i >= bins) continue;
+      raw[k][i] += dt;
+      totals[k] += dt;
+    }
+  }
+  return { rings: true, bin, cols: bins, rows: 1, layers: raw, totals };
+}
+
+/**
  * The chosen targets together: time per cell, the target that spent the most of it there (its colour
  * paints the cell), the busiest cell and the total time. visible: one boolean per target.
  */

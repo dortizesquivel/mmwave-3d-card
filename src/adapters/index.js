@@ -1,9 +1,10 @@
+import { ld2410 } from './ld2410.js';
 import { ld2450 } from './ld2450.js';
 import { ld6004 } from './ld6004.js';
 
 // Each adapter maps one ESPHome component's entities to a common model:
 // sensor coordinates in metres (x sideways, y forward, z up) and zones as boxes.
-export const ADAPTERS = { ld2450, ld6004 };
+export const ADAPTERS = { ld2450, ld6004, ld2410 };
 
 export function getAdapter(type) {
   const adapter = ADAPTERS[type];
@@ -69,5 +70,6 @@ export function buildFrame(adapter, hass, ent, opts) {
   }
   for (const t of targets) t.zone = zones.find((z) => z.kind === 'detection' && inZone(t, z)) ?? null;
 
-  return { targets, zones, mount: raw.mount };
+  // 1D sensors (LD2410) report distances instead of positions; they pass through as `ranges`.
+  return { targets, zones, mount: raw.mount, ranges: raw.ranges ?? null };
 }

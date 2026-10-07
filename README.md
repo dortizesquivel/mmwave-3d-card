@@ -7,10 +7,11 @@
 
 A Lovelace card that draws an mmWave presence radar in 3D: the sensor's coverage, its zones and every person it tracks, with a short trail behind each one. Built with [three.js](https://threejs.org/) and bundled into a single file, so it works without internet access.
 
-It supports two Hi-Link radars:
+It supports three Hi-Link radars:
 
 - **HLK-LD2450**: 24 GHz, X/Y of up to 3 people, through the official ESPHome `ld2450` component.
 - **HLK-LD6004**: 60 GHz, **X/Y/Z** of up to 3 people, through the [`esphome-ld6004`](https://github.com/javierconfoie/esphome-ld6004) external component. With Z the card also shows whether each person is standing, sitting or lying.
+- **HLK-LD2410** (B and C too): 24 GHz, **distance only**, through the official ESPHome `ld2410` component. The card draws each detection as an arc at its distance and charts the energy of each gate against its threshold, which is what you need to tune it.
 
 ![A tour of the card: live 3D, heatmap, zone editing and replay](docs/demo.gif)
 
@@ -182,6 +183,67 @@ In Home Assistant these become `esphome.<node>_set_detection_zone` and so on, wh
 
 </details>
 
+<details>
+<summary><b>HLK-LD2410</b>, with the official <a href="https://esphome.io/components/sensor/ld2410/"><code>ld2410</code></a> component</summary>
+
+```yaml
+uart:
+  id: uart_ld2410
+  tx_pin: GPIO17               # your board's pins
+  rx_pin: GPIO16
+  baud_rate: 256000
+  parity: NONE
+  stop_bits: 1
+
+ld2410:
+  id: ld2410_radar
+  uart_id: uart_ld2410
+
+binary_sensor:
+  - platform: ld2410
+    ld2410_id: ld2410_radar
+    has_target: { name: Presence }
+    has_moving_target: { name: Moving Target }
+    has_still_target: { name: Still Target }
+
+sensor:
+  - platform: ld2410
+    ld2410_id: ld2410_radar
+    moving_distance: { name: Moving Distance }
+    still_distance: { name: Still Distance }
+    moving_energy: { name: Move Energy }
+    still_energy: { name: Still Energy }
+    detection_distance: { name: Detection Distance }
+    # Energy per gate, sent while Engineering mode is on. Repeat for g1 … g8.
+    g0:
+      move_energy: { name: G0 move energy }
+      still_energy: { name: G0 still energy }
+
+number:
+  - platform: ld2410
+    ld2410_id: ld2410_radar
+    max_move_distance_gate: { name: Max move distance gate }
+    max_still_distance_gate: { name: Max still distance gate }
+    # Threshold per gate. Repeat for g1 … g8.
+    g0:
+      move_threshold: { name: G0 move threshold }
+      still_threshold: { name: G0 still threshold }
+
+select:
+  - platform: ld2410
+    ld2410_id: ld2410_radar
+    distance_resolution: { name: Distance resolution }
+
+switch:
+  - platform: ld2410
+    ld2410_id: ld2410_radar
+    engineering_mode: { name: Engineering mode }
+```
+
+Only the distances and the moving/still targets are required. With the gate entities the card adds the energy chart; with *Engineering mode* it can switch the energies on and off from the card.
+
+</details>
+
 ## Installation
 
 ### Via HACS (recommended)
@@ -229,6 +291,7 @@ The card is waiting for review to join HACS's default list. Until it's accepted,
 - **Replay** the last 1, 6 or 24 hours from the recorder. [More](#replay)
 - **Heatmap** of where each person spent their time, in their colour. [More](#heatmap)
 - **Zones from the sensor**, drawn as boxes: detection zones light up when someone is inside; zones the radar ignores (LD6004 interference, LD2450 *Filter*) are hatched; dwell zones have dashed edges.
+- **Distance-only sensors (LD2410)**: detections as arcs, gate limits, and the energy of each gate against its threshold. [More](#distance-only-sensors-ld2410)
 - **Wall or ceiling mounting**; the LD6004 can read it from its *Install Method* select.
 - **Follows the Home Assistant theme** (light, dark and custom themes); the UI is in English or Spanish, following HA's language.
 - **Light on resources**: it stops drawing while off screen and releases its WebGL context when you leave the view. With reduced motion turned on in your system (no radar pulse), it also stops drawing when nothing moves.
@@ -243,6 +306,15 @@ device: ld2450
 prefix: kin_estudio_piscina      # sensor.kin_estudio_piscina_target_1_x → "kin_estudio_piscina"
 title: Study
 mount_height: 1.5
+```
+
+An LD2410 in a hallway:
+
+```yaml
+type: custom:mmwave-3d-card
+device: ld2410
+prefix: esp32_pasillo            # sensor.esp32_pasillo_moving_distance → "esp32_pasillo"
+title: Hallway
 ```
 
 An LD6004 on the ceiling, with named zones and tuned posture thresholds:
@@ -285,6 +357,18 @@ To zoom, use Ctrl/⌘ and the mouse wheel, pinch on a trackpad, or use two finge
 Each person gets a figure, a ring on the floor, a dashed line to the sensor and a label with their distance. The table under the view lists each person's position, speed (LD2450) or height and posture (LD6004), and the zone they are in; the chips under the table show how many people each zone holds.
 
 With the LD6004 the figure follows the person's height: **standing**, **sitting** or **lying**. The card decides from the height above the floor, with thresholds you can change (`posture.sitting`, default 0.95 m, and `posture.lying`, default 0.45 m). The LD2450 has no height, so its figures are always standing and only give scale.
+
+### Distance-only sensors (LD2410)
+
+![An LD2410: a moving detection as an arc, the gate limits, and the energy of each gate against its threshold](docs/images/ld2410.png)
+
+*An LD2410 in a hallway: the moving detection as a blue arc at 1.8 m, the 4.5 m limits, and the energy of each gate.*
+
+The LD2410 only measures distance, so the card doesn't pretend to know where you are: each detection is an **arc** across the field of view at its distance, blue for the moving target and orange for the still one, with a soft band one gate wide around it (0.75 m or 0.2 m, depending on the sensor's resolution). The dashed arcs are how far the sensor is set to look for movement and for still targets (its *max distance gates*), and **G0 … G8** mark the gates.
+
+Under the table, **Energy per gate** shows, for each gate, the moving and still energy as bars and the threshold as a line across them. A bar above its line is what makes the sensor detect; gates beyond the limits are dimmed, and the gate with the current detection is in bold. The energies only arrive while the sensor's **Engineering mode** is on: if it's off, the chart shows the thresholds and, for admins, a button to switch it on (it makes the sensor send much more data, so switch it off when you're done tuning).
+
+Replay works the same way, and the heatmap becomes rings: how long each distance was occupied, blue where most of it was movement and orange where it was someone still. There are no zones to edit on this sensor.
 
 ### Visual editor
 
@@ -376,7 +460,7 @@ T1, T2 and T3 are the radar's tracking slots, not identities: when people come a
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `type` | string | **required** | `custom:mmwave-3d-card` |
-| `device` | string | **required** | `ld2450` or `ld6004` |
+| `device` | string | **required** | `ld2450`, `ld6004` or `ld2410` |
 | `prefix` | string | **required** ¹ | The part of the entity ids before `_target_…`. For `sensor.kin_estudio_piscina_target_1_x` it is `kin_estudio_piscina`. |
 | `title` | string | sensor model | Card title |
 | `mount` | string | `wall` (LD2450), `auto` (LD6004) | `wall`, `ceiling` or `auto`. `auto` reads the LD6004 *Install Method* select (`Side`/`Top`) and falls back to `wall`. |
@@ -435,6 +519,18 @@ The card converts units from `unit_of_measurement` (mm, cm or m), so it also wor
 | `binary_sensor.<prefix>_zone_{0-3}_presence` | Occupancy of each detection zone |
 | `select.<prefix>_install_method` | `Side` / `Top`, for `mount: auto` |
 
+**HLK-LD2410** ([ESPHome `ld2410`](https://esphome.io/components/sensor/ld2410/)). Distances in cm; a target counts as present when its binary sensor is on (the distances keep their last value).
+
+| Entity | Used for |
+|---|---|
+| `sensor.<prefix>_moving_distance`, `_still_distance` | Distance of the moving and the still target |
+| `sensor.<prefix>_move_energy`, `_still_energy` | Their energy |
+| `binary_sensor.<prefix>_moving_target`, `_still_target`, `_presence` | Whether each is detected, and presence |
+| `select.<prefix>_distance_resolution` | Gate size: `0.75m` or `0.2m` |
+| `number.<prefix>_max_move_distance_gate`, `_max_still_distance_gate` | How far it looks, in gates |
+| `sensor.<prefix>_gN_move_energy`, `_gN_still_energy`; `number.<prefix>_gN_move_threshold`, `_gN_still_threshold` | Energy and threshold per gate (N = 0 … 8) |
+| `switch.<prefix>_engineering_mode` | Sends the gate energies while on |
+
 ### Coordinates
 
 The sensor sits on the wall (or ceiling) at the origin. **x** is to the sensor's right, **y** points forward, out of the sensor, and **z** is height. The *Plan* view puts the sensor at the bottom, as if you were standing behind it. If your sensor reports x the other way round, set `invert_x: true`.
@@ -451,7 +547,8 @@ A summary of the research behind this card, for a wall-mounted sensor in a room 
 |---|---|---|---|---|
 | **LD2450** | 24 GHz | X, Y · 3 people | Official ESPHome component | The reference. Weak at detecting someone sitting still. |
 | LD2460 / LD2461 | 24 GHz | X, Y · up to 5 people | Community | Still 2D. The LD2461 is [discontinued](https://www.espboards.dev/sensors/ld2461/). |
-| LD2410 / 2412 / 2420 | 24 GHz | Distance only (1D) | Official | Very good for static presence, but they don't track people. |
+| **LD2410** | 24 GHz | Distance only (1D) | Official | **Supported** in distance mode. Very good for static presence, but it doesn't track people. |
+| LD2412 / LD2420 | 24 GHz | Distance only (1D) | Official | Not supported yet. |
 | **[LD6004](https://www.hlktech.net/index.php?id=1391)** | 60 GHz | **X, Y, Z · 3 people** · 0–6 m · ±60° horizontal and vertical · wall or ceiling | [esphome-ld6004](https://github.com/javierconfoie/esphome-ld6004) (community) | **Best fit for 3D** |
 | [LD6001](https://www.hlktech.net/index.php?id=1313) | 60 GHz | X, Y and vertical angle · up to 8 people · 8 m | [esphome-hlk-ld6001](https://github.com/Devristo/esphome-hlk-ld6001) (community) | Runner-up |
 | LD6002B | 60 GHz | X, Y, Z and point cloud · 4 zones | Only a [standalone ESP-IDF firmware](https://github.com/christhomas/esp32c3-hlk-ld6002B-3d-human-presence-sensor), no ESPHome | No integration yet |

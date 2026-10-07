@@ -22,7 +22,7 @@
   .controls { display: flex; flex-wrap: wrap; gap: 8px; }
   .controls button { font: inherit; color: var(--primary-text-color); background: var(--card-background-color);
     border: 1px solid var(--divider-color); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
-  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; padding: 16px 20px; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 16px; padding: 16px 20px; }
   details { margin: 0 20px 32px; padding: 12px 16px; border: 1px solid var(--divider-color); border-radius: 12px; background: var(--card-background-color); }
   summary { cursor: pointer; font-weight: 500; }
   .editor-wrap { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; margin-top: 12px; }
@@ -65,7 +65,7 @@
   import '../dist/mmwave-3d-card.js';
   import { LD6004_NODES, Sim } from './sim.js';
 
-  // ?theme=dark&lang=es&cards=ld2450,ld6004,ceiling&view=plan&capture=1
+  // ?theme=dark&lang=es&cards=ld2450,ld6004,ceiling,ld2410&view=plan&capture=1
   // Tests add seed=<n> (deterministic noise), t=<s> (scene time) and frozen=1 (people stop moving).
   const q = new URLSearchParams(location.search);
   const ROOM = (dy) => ({
@@ -81,6 +81,7 @@
     ld2450: { device: 'ld2450', prefix: 'kin_estudio_piscina', title: 'Study · HLK-LD2450', mount_height: 1.5 },
     ld6004: { device: 'ld6004', prefix: 'radar_ld6004', title: 'Study · HLK-LD6004', mount_height: 1.5,
       zone_service: 'esphome.hlk_ld6004_set_detection_zone', zone_names: ['Desk', 'Reading', 'Sofa'], room: ROOM(0) },
+    ld2410: { device: 'ld2410', prefix: 'esp32_pasillo', title: 'Hallway · HLK-LD2410', mount_height: 1.5 },
     ceiling: { device: 'ld6004', prefix: 'radar_techo', title: 'Study · HLK-LD6004 on the ceiling', mount_height: 2.7,
       zone_service: 'esphome.hlk_techo_set_detection_zone', zone_names: ['Desk', 'Reading', 'Sofa'], room: ROOM(3) },
   };
@@ -124,7 +125,7 @@
     },
   });
 
-  const cards = (q.get('cards') ?? 'ld2450,ld6004,ceiling').split(',').map((key) => {
+  const cards = (q.get('cards') ?? 'ld2450,ld6004,ceiling,ld2410').split(',').map((key) => {
     const el = document.createElement('mmwave-3d-card');
     el.setConfig({ type: 'custom:mmwave-3d-card', ...CARDS[key], ...(q.get('view') ? { view: q.get('view') } : {}) });
     el.hass = hassFor();

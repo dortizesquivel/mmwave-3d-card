@@ -68,8 +68,12 @@ export class RadarScene {
     this.staticGroup = new Group();
     this.roomGroup = new Group();
     this.heatGroup = new Group();
+    this.rangeGroup = new Group();       // 1D sensors: gates, limits and the distance arcs
+    this.rangeSig = '';
+    this.ranges = null;
+    this.arcs = null;
     this.zoneGroup = new Group();
-    this.scene.add(this.staticGroup, this.roomGroup, this.heatGroup, this.zoneGroup);
+    this.scene.add(this.staticGroup, this.roomGroup, this.heatGroup, this.zoneGroup, this.rangeGroup);
     this.zoneObjs = [];
     this.zoneSig = '';
     this.lastZones = { zones: [], nameFor: () => '', visible: true, canEdit: () => false };
@@ -130,6 +134,7 @@ export class RadarScene {
     if (changed && this.theme) {
       this._buildStatic();
       this.setView(this.view, true);
+      if (this.ranges) { this.rangeSig = ''; this.setRanges(this.ranges, this.rangeLabels); }
     }
   }
 
@@ -153,6 +158,7 @@ export class RadarScene {
     }
     this.zoneSig = '';
     this._refreshZones();
+    if (this.ranges) { this.rangeSig = ''; this.setRanges(this.ranges, this.rangeLabels); }
   }
 
   /** room: normalised `room` config with x already in the display frame, or null. */
@@ -280,6 +286,7 @@ export class RadarScene {
     if (!map || !this.theme) return;
     const { values, owner, max } = combine(map, opts.visible ?? map.layers.map(() => true));
     if (!max) return;
+    if (map.rings) { this._ringHeat(map, values, owner, max); return; }
     const { cols, rows, cell, x1, y1 } = map;
     const colors = this.theme.targets.map((h) => new Color(h).getRGB({ r: 0, g: 0, b: 0 }, SRGBColorSpace));
     const data = new Uint8Array(cols * rows * 4);
@@ -307,10 +314,140 @@ export class RadarScene {
     this.heatOn = true;
   }
 
+  /** 1D heatmap: a band per distance bin, coloured by whichever kind (moving or still) spent most time there. */
+  _ringHeat(map, values, owner, max) {
+    const colors = this.theme.targets.map((h) => new Color(h));
+    values.forEach((v, i) => {
+      if (!v) return;
+      const n = Math.pow(v / max, 0.5);
+      const r0 = this._horizontal(i * map.bin), r1 = this._horizontal((i + 1) * map.bin);
+      const pts = this._rangeArc(1, 0), pos = [];
+      for (let k = 0; k < pts.length - 1; k++) {
+        const [p0, p1] = [pts[k], pts[k + 1]];
+        const q = (p, rad) => [p.x * rad, 0.02, p.z * rad];
+        pos.push(...q(p0, r0), ...q(p0, r1), ...q(p1, r1), ...q(p0, r0), ...q(p1, r1), ...q(p1, r0));
+      }
+      const geo = new BufferGeometry();
+      geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
+      const m = new Mesh(geo, new MeshBasicMaterial({ color: colors[owner[i]], transparent: true, opacity: 0.18 + 0.6 * n, depthWrite: false, side: DoubleSide }));
+      m.renderOrder = 2;
+      this.heatGroup.add(m);
+    });
+    this.heatOn = true;
+  }
+
   /** Floor area worth mapping, in the display frame: the coverage plus the room. */
   floorBounds() {
     const b = this._extent().bounds;
     return { x1: -b.maxX, x2: -b.minX, y1: b.minZ, y2: b.maxZ };
+  }
+
+  // ---------- 1D sensors ----------
+
+  /**
+   * ranges: from buildFrame() for a distance-only sensor (LD2410), or null.
+   * labels: { moving(track), still(track), gate(index), moveLimit, stillLimit } → text.
+   * Without a direction, a detection is an arc at its distance across the whole field of view, with a band
+   * one gate wide around it: the sensor can't place it any closer than that.
+   */
+  setRanges(ranges, labels) {
+    this.dirty = true;
+    this.ranges = ranges;
+    this.rangeLabels = labels;
+    if (!ranges || !this.theme || !this.layout) {
+      if (!ranges) { clearGroup(this.rangeGroup); this.rangeSig = ''; this.arcs = null; }
+      return;
+    }
+    const sig = JSON.stringify([ranges.resolution, ranges.gates.length, ranges.moveLimit, ranges.stillLimit,
+      this.layout.mount, this.layout.fov, this.layout.h, this.theme, labels.moveLimit, labels.stillLimit]);
+    if (sig !== this.rangeSig) {
+      this.rangeSig = sig;
+      this._buildRanges();
+    }
+    for (const kind of ['moving', 'still']) {
+      const a = this.arcs[kind], t = ranges[kind];
+      a.present = t.present;
+      if (t.present) {
+        a.goal = this._horizontal(t.distance);
+        if (a.shown === null || a.presence < 0.05) a.shown = a.goal;
+        a.text.textContent = labels[kind](t);
+      }
+    }
+  }
+
+  /** Horizontal distance on the floor for a measured (slant) distance, with the target's centre about 1 m up. */
+  _horizontal(d) {
+    const dh = Math.max(0, (this.layout?.h ?? 1.5) - 1);
+    return Math.sqrt(Math.max(0, d * d - dh * dh));
+  }
+
+  _rangeArc(r, y) {
+    const e = this._extent();
+    return this.layout.mount === 'ceiling' ? circlePts(r, y) : arcPts(r, e.half, y);
+  }
+
+  _buildRanges() {
+    clearGroup(this.rangeGroup);
+    const g = this.rangeGroup, th = this.theme, r = this.ranges, L = this.rangeLabels;
+    const e = this._extent();
+    const ceiling = this.layout.mount === 'ceiling';
+    const outer = Math.min(e.r, r.gates.length * r.resolution);
+    // Gate boundaries, with each gate's number at its middle just outside the fan.
+    for (let k = 1; k * r.resolution <= outer + 1e-6; k++) g.add(line(this._rangeArc(this._horizontal(k * r.resolution), 0.006), th.fg2, 0.35));
+    r.gates.forEach((gate) => {
+      const mid = this._horizontal((gate.from + gate.to) / 2);
+      if (mid > e.r) return;
+      const a = ceiling ? Math.PI * 1.25 : e.half + 0.05;     // opposite side to the distance labels
+      g.add(label(L.gate(gate.index), 'axis', V(Math.sin(a) * mid, 0.02, Math.cos(a) * mid)));
+    });
+    // How far the sensor is set to look, for movement and for still targets.
+    const limit = (dist, color, text, angle) => {
+      if (dist === null) return;
+      const rr = this._horizontal(dist);
+      const l = new Line(new BufferGeometry().setFromPoints(this._rangeArc(rr, 0.012)),
+        new LineDashedMaterial({ color, dashSize: 0.14, gapSize: 0.1, transparent: true, opacity: 0.9 }));
+      l.computeLineDistances();
+      g.add(l, label(text, 'axis', V(Math.sin(angle) * (rr + 0.2), 0.02, Math.cos(angle) * (rr + 0.2))));
+    };
+    const same = r.moveLimit !== null && r.moveLimit === r.stillLimit;
+    limit(r.moveLimit, th.targets[0], same ? `${L.moveLimit} · ${L.stillLimit}` : L.moveLimit, ceiling ? Math.PI * 0.75 : e.half * 0.55);
+    if (!same) limit(r.stillLimit, th.targets[1], L.stillLimit, ceiling ? Math.PI * 0.6 : -e.half * 0.55);
+
+    // The two detections: a soft band one gate wide and a bright line at the measured distance.
+    this.arcs = {};
+    ['moving', 'still'].forEach((kind, i) => {
+      const color = new Color(th.targets[i]);
+      const band = new Mesh(new BufferGeometry(), new MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, side: DoubleSide }));
+      const arc = new Line(new BufferGeometry(), new LineBasicMaterial({ color, transparent: true, opacity: 0 }));
+      const el = document.createElement('div');
+      el.className = 'tag';
+      el.innerHTML = `<i style="background:${th.targets[i]}"></i><span></span>`;
+      const tag = new CSS2DObject(el);
+      g.add(band, arc, tag);
+      this.arcs[kind] = { band, arc, tag, el, text: el.querySelector('span'), present: false, presence: 0, goal: 0, shown: null, built: -1 };
+    });
+  }
+
+  /** Rebuilds an arc's band and line at radius r (they change size, so they can't just be scaled). */
+  _placeArc(a, r) {
+    const half = Math.max(0.05, (this.ranges.resolution) / 2);
+    const inner = Math.max(0, r - half), outerR = r + half;
+    const pts = this._rangeArc(1, 0);
+    const pos = [];
+    for (let k = 0; k < pts.length - 1; k++) {
+      const [p0, p1] = [pts[k], pts[k + 1]];
+      const q = (p, rad) => [p.x * rad, 0.01, p.z * rad];
+      pos.push(...q(p0, inner), ...q(p0, outerR), ...q(p1, outerR), ...q(p0, inner), ...q(p1, outerR), ...q(p1, inner));
+    }
+    a.band.geometry.dispose();
+    a.band.geometry = new BufferGeometry();
+    a.band.geometry.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
+    a.arc.geometry.dispose();
+    a.arc.geometry = new BufferGeometry().setFromPoints(this._rangeArc(r, 0.014));
+    const ceiling = this.layout.mount === 'ceiling';
+    const ang = ceiling ? Math.PI : -this._extent().half * 0.45;     // off the centre line, clear of the sensor's label
+    a.tag.position.set(Math.sin(ang) * r, 0.5, Math.cos(ang) * r);
+    a.built = r;
   }
 
   clearTrails() {
@@ -900,6 +1037,22 @@ export class RadarScene {
       }
     }
     if (this.trailMoving) { animating = true; this.trailMoving = false; }
+
+    if (this.arcs) {
+      for (const a of Object.values(this.arcs)) {
+        if (Math.abs(a.presence - (a.present ? 1 : 0)) > 0.002) animating = true;
+        a.presence += ((a.present ? 1 : 0) - a.presence) * fade;
+        if (a.shown !== null) {
+          if (Math.abs(a.goal - a.shown) > 0.002) { a.shown += (a.goal - a.shown) * follow; animating = true; }
+          if (Math.abs(a.shown - a.built) > 0.005) this._placeArc(a, a.shown);
+        }
+        const on = a.presence > 0.02 && a.shown !== null;
+        a.band.visible = a.arc.visible = a.tag.visible = on;
+        a.band.material.opacity = 0.16 * a.presence;
+        a.arc.material.opacity = 0.95 * a.presence;
+        a.el.style.opacity = a.presence.toFixed(2);
+      }
+    }
 
     for (const z of this.zoneObjs) {
       if (z.isExclude || z.fixed) continue;

@@ -198,3 +198,56 @@ test('LD6004: writeZone calls the service of the zone kind, rounding to millimet
   assert.deepEqual(hass.calls[1], { domain: 'esphome', service: 'hlk_set_dwell_zone',
     data: { zone_index: 0, x_min: 0, x_max: 0, y_min: 0, y_max: 0, z_min: 0, z_max: 0 } });
 });
+
+// ---------- LD2410 (distance only) ----------
+
+function ld2410States(p, over = {}) {
+  const s = {
+    [`sensor.${p}_moving_distance`]: st(152, 'cm'), [`sensor.${p}_move_energy`]: st(37, '%'), [`binary_sensor.${p}_moving_target`]: st('on'),
+    [`sensor.${p}_still_distance`]: st(289, 'cm'), [`sensor.${p}_still_energy`]: st(4, '%'), [`binary_sensor.${p}_still_target`]: st('off'),
+    [`binary_sensor.${p}_presence`]: st('on'), [`sensor.${p}_detection_distance`]: st(152, 'cm'),
+    [`select.${p}_distance_resolution`]: st('0.75m'),
+    [`number.${p}_max_move_distance_gate`]: st(6), [`number.${p}_max_still_distance_gate`]: st(5),
+    [`switch.${p}_engineering_mode`]: st('off'),
+  };
+  for (let g = 0; g < 9; g++) {
+    s[`number.${p}_g${g}_move_threshold`] = st(40 - g, '%');
+    s[`number.${p}_g${g}_still_threshold`] = st(30, '%');
+    s[`sensor.${p}_g${g}_move_energy`] = st('unknown', '%');
+    s[`sensor.${p}_g${g}_still_energy`] = st('unknown', '%');
+  }
+  return { ...s, ...over };
+}
+
+test('LD2410: cm to metres, presence from the binary sensors, gates from the resolution', () => {
+  const a = getAdapter('ld2410');
+  const f = buildFrame(a, { states: ld2410States('hall') }, resolveEntities(a, { prefix: 'hall' }), opts);
+  const r = f.ranges;
+  assert.deepEqual(r.moving, { present: true, distance: 1.52, energy: 37, gate: 2 });
+  assert.deepEqual(r.still, { present: false, distance: null, energy: null, gate: null });   // last still distance ignored
+  assert.equal(r.gates.length, 9);
+  assert.deepEqual(r.gates[1], { index: 1, from: 0.75, to: 1.5, moveEnergy: null, stillEnergy: null, moveThreshold: 39, stillThreshold: 30, exists: true });
+  assert.equal(r.moveLimit, 4.5);
+  assert.equal(r.stillLimit, 3.75);
+  assert.equal(r.engineering, false);
+  assert.deepEqual(f.targets, []);
+});
+
+test('LD2410: 0.2 m resolution and gate energies in engineering mode', () => {
+  const a = getAdapter('ld2410');
+  const states = ld2410States('hall', {
+    [`select.hall_distance_resolution`]: st('0.2m'), [`switch.hall_engineering_mode`]: st('on'),
+    [`sensor.hall_g7_move_energy`]: st(55, '%'), [`binary_sensor.hall_still_target`]: st('on'),
+  });
+  const r = buildFrame(a, { states }, resolveEntities(a, { prefix: 'hall' }), opts).ranges;
+  assert.equal(r.resolution, 0.2);
+  assert.equal(r.moving.gate, 7);                      // 1.52 m / 0.2 m
+  assert.equal(r.still.distance, 2.89);
+  assert.equal(r.gates[7].moveEnergy, 55);
+  assert.ok(Math.abs(r.moveLimit - 1.2) < 1e-9);
+});
+
+test('detectDevices finds LD2410s by their distance sensors', () => {
+  const hass = { states: { ...ld2410States('hall'), ...ld2450States('estudio') } };
+  assert.deepEqual(detectDevices(hass), [{ device: 'ld2450', prefix: 'estudio' }, { device: 'ld2410', prefix: 'hall' }]);
+});

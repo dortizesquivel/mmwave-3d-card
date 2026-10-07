@@ -1,7 +1,7 @@
 import { buildFrame, detectDevices, getAdapter, resolveEntities } from './adapters/index.js';
 import { normalizeConfig, VIEWS } from './config.js';
 import './editor.js';
-import { buildHeatmap, combine } from './heatmap.js';
+import { buildHeatmap, buildRingHeatmap, combine } from './heatmap.js';
 import { fetchHistory, historySpan, statesAt } from './history.js';
 import { formatDuration, strings, zoneName } from './i18n.js';
 import { RadarScene } from './scene.js';
@@ -101,6 +101,34 @@ const STYLE = `
   .zone { font: inherit; font-size: 12px; padding: 6px 9px; border: 1px solid var(--divider-color); border-radius: 6px; background: none;
     color: var(--secondary-text-color); font-variant-numeric: tabular-nums; cursor: pointer; }
   .zone[data-on="true"] { color: var(--primary-text-color); border-color: var(--primary-color); }
+  .gates { display: grid; gap: 8px; }
+  .gates:empty { display: none; }
+  .gates-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px;
+    font-size: 12px; color: var(--secondary-text-color); }
+  .gates-head b { font-weight: 500; color: var(--primary-text-color); letter-spacing: .06em; text-transform: uppercase; font-size: 11px; }
+  .gates-key { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; }
+  .gates-key span { display: inline-flex; align-items: center; gap: 5px; }
+  .gates-key i { width: 10px; height: 10px; border-radius: 2px; }
+  .gates-key i.tick { height: 2px; border-radius: 0; background: var(--primary-text-color); }
+  /* Energy per gate: HTML bars, so the text keeps its size at any card width. */
+  .gchart { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 6px; font-size: 11px; color: var(--secondary-text-color);
+    font-variant-numeric: tabular-nums; }
+  .gaxis { position: relative; height: 96px; min-width: 2.8em; }
+  .gaxis span { position: absolute; right: 0; transform: translateY(50%); white-space: nowrap; }
+  .gplot { position: relative; height: 96px; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+    border-bottom: 1px solid var(--divider-color);
+    background: linear-gradient(var(--divider-color), var(--divider-color)) 0 0 / 100% 1px no-repeat,
+                linear-gradient(var(--divider-color), var(--divider-color)) 0 50% / 100% 1px no-repeat; }
+  .gcol { display: flex; justify-content: center; align-items: flex-end; gap: 2px; }
+  .gbar { position: relative; width: min(12px, 32%); height: 100%; }
+  .gbar.off { opacity: .32; }
+  .gbar b { position: absolute; left: 0; right: 0; bottom: 0; height: var(--h); background: var(--c); border-radius: 2px 2px 0 0; }
+  .gbar i { position: absolute; left: -3px; right: -3px; bottom: var(--t); height: 2px; margin-bottom: -1px; background: var(--primary-text-color); }
+  .glabels { grid-column: 2; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); text-align: center; padding-top: 4px; }
+  .glabels .here { color: var(--primary-text-color); font-weight: 600; }
+  .gates .note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--secondary-text-color); }
+  .gates .btn { font: inherit; font-size: 12px; font-weight: 500; color: var(--primary-text-color); background: none;
+    border: 1px solid var(--divider-color); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
   .zone-n { display: inline-block; min-width: 5ch; text-align: left; }   /* "1", "2" or "free" without resizing the chip */
   .zone[data-kind="filter"], .zone[data-kind="interference"] { border-style: dashed; }
 `;
@@ -196,9 +224,11 @@ class MmwaveRadar3dCard extends HTMLElement {
     const a = this._adapter;
     const viewLabel = { '3d': t.view3d, plan: t.plan, sensor: t.sensorView };
     // Distance is already on each target's floating label, so the table leaves it out to fit narrow cards.
-    // [header, width]; the zone column takes the rest.
-    const cols = [[t.target, '3.6em'], [t.position, '8.6em'], ...(a.hasZ ? [[t.height, '5.8em'], [t.posture, '6.8em']] : []),
-      ...(a.hasSpeed ? [[t.speed, '5.8em']] : []), [t.zone, null]];
+    // [header, width]; the last column takes the rest.
+    const cols = a.oneD
+      ? [[t.detection, '8em'], [t.distance, '6.5em'], [t.energy, '5.8em'], [t.gate, null]]
+      : [[t.target, '3.6em'], [t.position, '8.6em'], ...(a.hasZ ? [[t.height, '5.8em'], [t.posture, '6.8em']] : []),
+        ...(a.hasSpeed ? [[t.speed, '5.8em']] : []), [t.zone, null]];
 
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
@@ -234,6 +264,7 @@ class MmwaveRadar3dCard extends HTMLElement {
             </table>
           </div>
           <div class="zones"></div>
+          <div class="gates"></div>
         </div>` : ''}
       </ha-card>`;
 
@@ -246,6 +277,7 @@ class MmwaveRadar3dCard extends HTMLElement {
       edit: root.querySelector('[data-act="edit"]'),
       tbody: root.querySelector('tbody'),
       zones: root.querySelector('.zones'),
+      gates: root.querySelector('.gates'),
     };
 
     root.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => this._setView(b.dataset.view)));
@@ -265,12 +297,13 @@ class MmwaveRadar3dCard extends HTMLElement {
 
     this._rows = [];
     if (this._el.tbody) {
-      for (let i = 0; i < 3; i++) {
+      const rowNames = a.oneD ? [t.moving, t.still] : [1, 2, 3].map((n) => `T${n}`);
+      rowNames.forEach((name, i) => {
         const tr = document.createElement('tr');
         tr.tabIndex = 0;
-        tr.innerHTML = `<td><span class="who"><span class="sw"></span>T${i + 1}</span></td>` + '<td></td>'.repeat(cols.length - 1);
+        tr.innerHTML = `<td><span class="who"><span class="sw"></span>${esc(name)}</span></td>` + '<td></td>'.repeat(cols.length - 1);
         const on = () => this._scene?.setHighlight(i, true), off = () => this._scene?.setHighlight(i, false);
-        const open = () => this._moreInfo(this._entities.targets[i]?.x);
+        const open = () => this._moreInfo(a.oneD ? this._entities[i ? 'still' : 'moving'].distance : this._entities.targets[i]?.x);
         tr.addEventListener('pointerenter', on);
         tr.addEventListener('pointerleave', off);
         tr.addEventListener('focus', on);
@@ -279,8 +312,11 @@ class MmwaveRadar3dCard extends HTMLElement {
         tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
         this._el.tbody.appendChild(tr);
         this._rows.push({ tr, sw: tr.querySelector('.sw'), cells: [...tr.children].slice(1) });
-      }
+      });
     }
+    this._el.gates?.addEventListener('click', (e) => {
+      if (e.target.closest('[data-act="engineering"]')) this._toggleEngineering();
+    });
     this._renderPanel();
   }
 
@@ -375,7 +411,7 @@ class MmwaveRadar3dCard extends HTMLElement {
     this._shownZones = zones;
     const firstX = this._entities.targets[0]?.x;
     this._setStatus(firstX && !hass.states[firstX] ? this._t.missing(firstX) : null);
-    this._el.edit.hidden = !(c.allow_zone_editing && hass.user?.is_admin && this._mode === 'live');
+    this._el.edit.hidden = !(c.allow_zone_editing && hass.user?.is_admin && this._mode === 'live' && this._adapter.zoneEditing);
 
     const scene = this._scene;
     if (scene) {
@@ -402,9 +438,92 @@ class MmwaveRadar3dCard extends HTMLElement {
         visible: this._ui.zones,
         canEdit: (z) => (this._editInfo?.kinds ?? []).includes(z.kind),
       });
-      if (this._mode !== 'replay') scene.setTargets(frame.targets, (t) => this._targetLabel(t));
+      if (this._mode !== 'replay') {
+        scene.setTargets(frame.targets, (t) => this._targetLabel(t));
+        scene.setRanges(frame.ranges, this._rangeLabels(frame.ranges));
+      }
     }
-    if (this._mode !== 'replay') this._renderReadout(frame.targets, zones);
+    if (this._mode !== 'replay') {
+      if (frame.ranges) this._renderRanges(frame.ranges);
+      else this._renderReadout(frame.targets, zones);
+    }
+  }
+
+  // ---------- 1D sensors (LD2410) ----------
+
+  _rangeLabels(r) {
+    if (!r) return null;
+    const t = this._t, m = (v) => `${this._fmt.m2.format(v)} m`;
+    const track = (name) => (tr) => `${name} · ${m(tr.distance)}${tr.energy === null ? '' : ` · ${Math.round(tr.energy)} %`}`;
+    return {
+      moving: track(t.moving),
+      still: track(t.still),
+      gate: (i) => `G${i}`,
+      moveLimit: r.moveLimit === null ? '' : `${t.moveLimit} ${m(r.moveLimit)}`,
+      stillLimit: r.stillLimit === null ? '' : `${t.stillLimit} ${m(r.stillLimit)}`,
+    };
+  }
+
+  _renderRanges(r) {
+    const t = this._t, f = this._fmt;
+    const someone = r.presence ?? (r.moving.present || r.still.present);
+    this._el.chip.textContent = someone ? t.presenceOn : t.nobody;
+    this._el.chip.dataset.state = someone ? 'on' : 'empty';
+    if (!this._config.show_table) return;
+    [r.moving, r.still].forEach((tr, i) => {
+      const row = this._rows[i];
+      if (!row) return;
+      row.tr.dataset.absent = String(!tr.present);
+      const values = tr.present
+        ? [`${f.m2.format(tr.distance)} m`, tr.energy === null ? '—' : `${Math.round(tr.energy)} %`, `G${tr.gate}`]
+        : ['—', '—', t.absent];
+      values.forEach((v, k) => { row.cells[k].textContent = v; });
+    });
+    this._el.gates.innerHTML = this._gatesChart(r);
+  }
+
+  /** Bar chart of each gate's energy against its threshold: the tool for tuning an LD2410. */
+  _gatesChart(r) {
+    const t = this._t, th = this._theme;
+    if (!r.gates.length || !th) return '';
+    const clamp = (v) => Math.max(0, Math.min(100, v));
+    const pct = (v) => (v === null ? '—' : `${Math.round(v)} %`);
+    const energies = r.gates.some((g) => g.moveEnergy !== null || g.stillEnergy !== null);
+    const limitGate = (lim) => (lim === null ? Infinity : Math.round(lim / r.resolution));
+    const here = new Set([r.moving.gate, r.still.gate].filter((g) => g !== null));
+    const bar = (g, energy, threshold, color, limit) => `<div class="gbar${g.index >= limit ? ' off' : ''}" style="--c:${color};`
+      + `--h:${energy === null ? 0 : clamp(energy)}%;--t:${threshold === null ? 0 : clamp(threshold)}%">`
+      + `${energy === null ? '' : '<b></b>'}${threshold === null ? '' : '<i></i>'}</div>`;
+    const cols = r.gates.map((g) => {
+      const title = `G${g.index} · ${t.moving} ${pct(g.moveEnergy)} (${t.threshold} ${pct(g.moveThreshold)})`
+        + ` · ${t.still} ${pct(g.stillEnergy)} (${t.threshold} ${pct(g.stillThreshold)})`;
+      return `<div class="gcol" title="${esc(title)}">${bar(g, g.moveEnergy, g.moveThreshold, th.targets[0], limitGate(r.moveLimit))}`
+        + `${bar(g, g.stillEnergy, g.stillThreshold, th.targets[1], limitGate(r.stillLimit))}</div>`;
+    }).join('');
+    const labels = r.gates.map((g) => `<span class="${here.has(g.index) ? 'here' : ''}">G${g.index}</span>`).join('');
+    const admin = this._hass?.user?.is_admin;
+    const note = energies
+      ? (admin && r.engineering ? `<div class="note">${esc(t.engineeringIsOn)}<button type="button" class="btn" data-act="engineering">${esc(t.engineeringStop)}</button></div>` : '')
+      : `<div class="note">${esc(t.engineeringOff)}${admin ? `<button type="button" class="btn" data-act="engineering">${esc(t.engineeringStart)}</button>` : ''}</div>`;
+    return `<div class="gates-head"><b>${esc(t.gatesTitle)}</b><span class="gates-key">
+        <span><i style="background:${th.targets[0]}"></i>${esc(t.moving)}</span>
+        <span><i style="background:${th.targets[1]}"></i>${esc(t.still)}</span>
+        <span><i class="tick"></i>${esc(t.threshold)}</span></span></div>
+      <div class="gchart" style="--n:${r.gates.length}" role="img" aria-label="${esc(t.gatesTitle)}">
+        <div class="gaxis"><span style="bottom:100%">100 %</span><span style="bottom:50%">50</span><span style="bottom:0">0</span></div>
+        <div class="gplot">${cols}</div>
+        <div class="glabels">${labels}</div>
+      </div>${note}`;
+  }
+
+  async _toggleEngineering() {
+    const id = this._entities.engineering;
+    const on = this._hass?.states[id]?.state === 'on';
+    try {
+      await this._hass.callService('switch', on ? 'turn_off' : 'turn_on', { entity_id: id });
+    } catch (err) {
+      console.warn('mmwave-3d-card: engineering mode', err);
+    }
   }
 
   _zoneName(z) {
@@ -479,6 +598,7 @@ class MmwaveRadar3dCard extends HTMLElement {
   }
 
   _historyIds() {
+    if (this._adapter.historyIds) return this._adapter.historyIds(this._entities);
     return [...new Set(this._entities.targets.flatMap((t) => [t.x, t.y, t.z, t.speed]).filter(Boolean))];
   }
 
@@ -528,8 +648,13 @@ class MmwaveRadar3dCard extends HTMLElement {
   _showReplayFrame() {
     if (!this._history) return;
     const frame = this._frameAt(this._replay.t);
-    this._scene?.setTargets(frame.targets, (t) => this._targetLabel(t));
-    this._renderReadout(frame.targets, this._visibleZones(frame.zones));
+    if (frame.ranges) {
+      this._scene?.setRanges(frame.ranges, this._rangeLabels(frame.ranges));
+      this._renderRanges(frame.ranges);
+    } else {
+      this._scene?.setTargets(frame.targets, (t) => this._targetLabel(t));
+      this._renderReadout(frame.targets, this._visibleZones(frame.zones));
+    }
     this._syncReplayControls();
   }
 
@@ -568,6 +693,16 @@ class MmwaveRadar3dCard extends HTMLElement {
   _computeHeatmap() {
     const h = this._history, scene = this._scene;
     if (!h || !scene) return;
+    const sample = (t) => buildFrame(this._adapter, { states: statesAt(h.data, t, h.base) }, this._entities, this._frameOpts());
+    if (this._adapter.oneD) {
+      this._heatVisible = [true, true];
+      this._heat = buildRingHeatmap({
+        start: h.start, end: h.end, step: HEAT_STEP[this._period], bin: 0.25, maxRange: this._config.max_range,
+        sampleAt: (t) => { const r = sample(t).ranges; return [{ id: 1, ...r.moving }, { id: 2, ...r.still }]; },
+      });
+      this._showHeat();
+      return;
+    }
     this._heatVisible = [true, true, true];
     this._heat = buildHeatmap({
       start: h.start,
@@ -733,7 +868,7 @@ class MmwaveRadar3dCard extends HTMLElement {
         const heat = this._heat;
         const chips = heat ? heat.totals.map((total, k) => (total > 0
           ? `<button type="button" class="heat-chip" data-heat="${k}" aria-pressed="${this._heatVisible[k]}">`
-            + `<i style="background:${this._theme.targets[k]}"></i>T${k + 1} · ${esc(formatDuration(total))}</button>`
+            + `<i style="background:${this._theme.targets[k]}"></i>${esc(heat.rings ? [t.moving, t.still][k] : `T${k + 1}`)} · ${esc(formatDuration(total))}</button>`
           : '')).join('') : '';
         const peak = heat ? combine(heat, this._heatVisible).max : 0;
         p.innerHTML = periods + (chips ? `<div class="heat-chips" role="group" aria-label="${esc(t.timeHere)}">${chips}</div>
