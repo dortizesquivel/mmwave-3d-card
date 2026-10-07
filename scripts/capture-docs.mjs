@@ -204,7 +204,7 @@ const ASSETS = {
     for (const theme of ['dark', 'light']) {
       const { ctx, card } = await open({ query: 't=48&frozen=1&cards=ld6004&view=plan', theme });
       await card.locator('[data-mode="heatmap"]').click();
-      await card.locator('.legend').waitFor();
+      await card.locator('.heat-chip').first().waitFor();
       await wait(600);
       const f = join(tmp, `heat-${theme}.png`);
       const top = await card.boundingBox(), panel = await card.locator('.panel').boundingBox();

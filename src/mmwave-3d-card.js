@@ -1,7 +1,7 @@
 import { buildFrame, detectDevices, getAdapter, resolveEntities } from './adapters/index.js';
 import { normalizeConfig, VIEWS } from './config.js';
 import './editor.js';
-import { buildHeatmap } from './heatmap.js';
+import { buildHeatmap, combine } from './heatmap.js';
 import { fetchHistory, historySpan, statesAt } from './history.js';
 import { formatDuration, strings, zoneName } from './i18n.js';
 import { RadarScene } from './scene.js';
@@ -51,7 +51,11 @@ const STYLE = `
   .panel[hidden] { display: none; }
   .panel .seg { backdrop-filter: none; background: none; }
   .panel input[type="range"] { flex: 1 1 160px; min-width: 120px; accent-color: var(--primary-color); }
-  .panel .time { min-width: 64px; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+  .panel .time { display: inline-block; min-width: 11ch; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+  /* Play/Pause: both labels share one grid cell, so the button is as wide as the longer one and never resizes. */
+  .swap { display: inline-grid; }
+  .swap > span { grid-area: 1 / 1; }
+  .swap[data-playing="true"] .play-label, .swap[data-playing="false"] .pause-label { visibility: hidden; }
   .panel .btn { font: inherit; font-size: 12px; font-weight: 500; color: var(--primary-text-color); background: none;
     border: 1px solid var(--divider-color); border-radius: 6px; padding: 7px 10px; min-height: 32px; cursor: pointer; }
   .panel .btn.primary { color: var(--text-primary-color, #fff); background: var(--primary-color); border-color: transparent; }
@@ -59,8 +63,12 @@ const STYLE = `
   .panel .hint { flex: 1 1 220px; min-width: 0; }
   .panel .msg { flex-basis: 100%; color: var(--primary-text-color); }
   .panel .msg[data-error="true"] { color: var(--error-color, #db4437); }
-  .legend { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
-  .legend .ramp { width: 110px; height: 8px; border-radius: 4px; }
+  .heat-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .heat-chip { font: inherit; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px;
+    border: 1px solid var(--divider-color); border-radius: 999px; background: none; color: var(--primary-text-color);
+    cursor: pointer; font-variant-numeric: tabular-nums; }
+  .heat-chip i { width: 9px; height: 9px; border-radius: 50%; }
+  .heat-chip[aria-pressed="false"] { color: var(--secondary-text-color); opacity: .55; text-decoration: line-through; }
 
   .tag { display: flex; align-items: center; gap: 6px; padding: 3px 7px; font-size: 11px; line-height: 1.2; white-space: nowrap;
     color: var(--primary-text-color); background: color-mix(in srgb, var(--card-background-color, #fff) 85%, transparent);
@@ -75,7 +83,9 @@ const STYLE = `
 
   .readout { padding: 4px 16px 14px; display: grid; gap: 12px; }
   .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  /* Fixed column widths: values change every frame in replay, and auto layout would make the columns jump. */
+  table { width: 100%; min-width: 30em; table-layout: fixed; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { overflow: hidden; text-overflow: ellipsis; }
   th { font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--secondary-text-color);
     text-align: right; padding: 10px 8px 8px; border-bottom: 1px solid var(--divider-color); white-space: nowrap; }
   td { text-align: right; padding: 8px; border-bottom: 1px solid var(--divider-color); white-space: nowrap; color: var(--primary-text-color); }
@@ -91,6 +101,7 @@ const STYLE = `
   .zone { font: inherit; font-size: 12px; padding: 6px 9px; border: 1px solid var(--divider-color); border-radius: 6px; background: none;
     color: var(--secondary-text-color); font-variant-numeric: tabular-nums; cursor: pointer; }
   .zone[data-on="true"] { color: var(--primary-text-color); border-color: var(--primary-color); }
+  .zone-n { display: inline-block; min-width: 5ch; text-align: left; }   /* "1", "2" or "free" without resizing the chip */
   .zone[data-kind="filter"], .zone[data-kind="interference"] { border-style: dashed; }
 `;
 
@@ -185,7 +196,9 @@ class MmwaveRadar3dCard extends HTMLElement {
     const a = this._adapter;
     const viewLabel = { '3d': t.view3d, plan: t.plan, sensor: t.sensorView };
     // Distance is already on each target's floating label, so the table leaves it out to fit narrow cards.
-    const cols = [t.target, t.position, ...(a.hasZ ? [t.height, t.posture] : []), ...(a.hasSpeed ? [t.speed] : []), t.zone];
+    // [header, width]; the zone column takes the rest.
+    const cols = [[t.target, '3.6em'], [t.position, '8.6em'], ...(a.hasZ ? [[t.height, '5.8em'], [t.posture, '6.8em']] : []),
+      ...(a.hasSpeed ? [[t.speed, '5.8em']] : []), [t.zone, null]];
 
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
@@ -215,7 +228,8 @@ class MmwaveRadar3dCard extends HTMLElement {
         <div class="readout">
           <div class="table-wrap">
             <table>
-              <thead><tr>${cols.map((h) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead>
+              <colgroup>${cols.map(([, w]) => (w ? `<col style="width:${w}">` : '<col>')).join('')}</colgroup>
+              <thead><tr>${cols.map(([h]) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -370,7 +384,7 @@ class MmwaveRadar3dCard extends HTMLElement {
         this._theme = readTheme(this, !!hass.themes?.darkMode);
         scene.setTheme(this._theme);
         this._rows.forEach((r, i) => r.sw.style.setProperty('--c', this._theme.targets[i]));
-        if (this._mode === 'heatmap' && this._heat) { scene.setHeatmap(this._heat); this._renderPanel(); }
+        if (this._mode === 'heatmap' && this._heat) { this._showHeat(); this._renderPanel(); }
       }
       scene.setLayout({
         mount: c.mount === 'auto' ? frame.mount ?? 'wall' : c.mount,
@@ -432,7 +446,10 @@ class MmwaveRadar3dCard extends HTMLElement {
       if (z.entity) chip.dataset.entity = z.entity;
       if (z.kind === 'detection') {
         chip.dataset.on = String(z.occupied);
-        chip.textContent = `${this._zoneName(z)} · ${z.occupied ? (z.count ?? z.inside) || '✓' : t.free}`;
+        const n = document.createElement('span');
+        n.className = 'zone-n';
+        n.textContent = z.occupied ? String((z.count ?? z.inside) || '✓') : t.free;
+        chip.append(`${this._zoneName(z)} · `, n);
       } else {
         chip.textContent = this._zoneName(z);
       }
@@ -523,7 +540,7 @@ class MmwaveRadar3dCard extends HTMLElement {
     const time = p.querySelector('.time');
     if (time) time.textContent = this._fmt.time.format(this._replay.t);
     const play = p.querySelector('[data-act="play"]');
-    if (play) play.textContent = this._replay.playing ? this._t.pause : this._t.play;
+    if (play) play.dataset.playing = String(this._replay.playing);
   }
 
   _togglePlay() {
@@ -551,6 +568,7 @@ class MmwaveRadar3dCard extends HTMLElement {
   _computeHeatmap() {
     const h = this._history, scene = this._scene;
     if (!h || !scene) return;
+    this._heatVisible = [true, true, true];
     this._heat = buildHeatmap({
       start: h.start,
       end: h.end,
@@ -559,7 +577,11 @@ class MmwaveRadar3dCard extends HTMLElement {
       bounds: scene.floorBounds(),
       sampleAt: (t) => buildFrame(this._adapter, { states: statesAt(h.data, t, h.base) }, this._entities, this._frameOpts()).targets,
     });
-    scene.setHeatmap(this._heat);
+    this._showHeat();
+  }
+
+  _showHeat() {
+    this._scene?.setHeatmap(this._heat, { visible: this._heatVisible });
   }
 
   // ---------- zone editing ----------
@@ -700,18 +722,22 @@ class MmwaveRadar3dCard extends HTMLElement {
       const h = this._history;
       if (this._mode === 'replay') {
         p.innerHTML = periods + (h ? `
-          <button type="button" class="btn" data-act="play">${esc(this._replay.playing ? t.pause : t.play)}</button>
+          <button type="button" class="btn swap" data-act="play" data-playing="${this._replay.playing}">
+            <span class="play-label">${esc(t.play)}</span><span class="pause-label">${esc(t.pause)}</span></button>
           <input type="range" min="${h.start}" max="${h.end}" step="1000" value="${this._replay.t}" aria-label="${esc(t.replay)}">
           <span class="time"></span>
           <div class="seg" role="group" aria-label="Speed">${SPEEDS.map((s) =>
             `<button type="button" data-speed="${s}" aria-pressed="${s === this._replay.speed}">×${s}</button>`).join('')}</div>` : '') + msg;
       } else {
+        // One chip per target with its time; tapping it shows or hides that target's colour on the floor.
         const heat = this._heat;
-        p.innerHTML = periods + (heat?.max ? `
-          <span class="legend"><span>${esc(t.timeHere)}</span>
-            <span class="ramp" style="background:linear-gradient(to right, ${this._theme.ramp.join(', ')})"></span>
-            <span>0 – ${esc(formatDuration(heat.max))}</span></span>
-          <span>${esc(t.heatTotal(formatDuration(heat.total)))}</span>` : '') + msg;
+        const chips = heat ? heat.totals.map((total, k) => (total > 0
+          ? `<button type="button" class="heat-chip" data-heat="${k}" aria-pressed="${this._heatVisible[k]}">`
+            + `<i style="background:${this._theme.targets[k]}"></i>T${k + 1} · ${esc(formatDuration(total))}</button>`
+          : '')).join('') : '';
+        const peak = heat ? combine(heat, this._heatVisible).max : 0;
+        p.innerHTML = periods + (chips ? `<div class="heat-chips" role="group" aria-label="${esc(t.timeHere)}">${chips}</div>
+          ${peak ? `<span>${esc(t.heatPeak(formatDuration(peak)))}</span>` : ''}` : '') + msg;
       }
     }
     p.hidden = false;
@@ -725,6 +751,12 @@ class MmwaveRadar3dCard extends HTMLElement {
     p.querySelectorAll('[data-speed]').forEach((b) => b.addEventListener('click', () => {
       this._replay.speed = Number(b.dataset.speed);
       p.querySelectorAll('[data-speed]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+    }));
+    p.querySelectorAll('[data-heat]').forEach((b) => b.addEventListener('click', () => {
+      const k = Number(b.dataset.heat);
+      this._heatVisible[k] = !this._heatVisible[k];
+      this._showHeat();
+      this._renderPanel();
     }));
     p.querySelector('[data-act="play"]')?.addEventListener('click', () => this._togglePlay());
     p.querySelector('input[type="range"]')?.addEventListener('input', (e) => {

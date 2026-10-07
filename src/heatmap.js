@@ -1,29 +1,50 @@
-// Time spent per floor cell, from targets sampled at a fixed step.
+// Time spent per floor cell, per target, from targets sampled at a fixed step.
 
 /**
  * bounds: { x1, x2, y1, y2 } in metres (display frame); cell: metres per cell;
- * sampleAt(t) returns the targets at time t ([{ present, x, y }]); start/end/step in ms.
- * Returns { cols, rows, cell, x1, y1, values (seconds per cell, lightly blurred), max, total }.
+ * sampleAt(t) returns the targets at time t ([{ id, present, x, y }], id 1…targets); start/end/step in ms.
+ * Returns { cols, rows, cell, x1, y1, layers: one grid of seconds per target (lightly blurred), totals: seconds per target }.
  */
-export function buildHeatmap({ start, end, step, cell, bounds, sampleAt }) {
+export function buildHeatmap({ start, end, step, cell, bounds, sampleAt, targets = 3 }) {
   const cols = Math.max(1, Math.ceil((bounds.x2 - bounds.x1) / cell));
   const rows = Math.max(1, Math.ceil((bounds.y2 - bounds.y1) / cell));
-  const raw = new Float32Array(cols * rows);
+  const raw = Array.from({ length: targets }, () => new Float32Array(cols * rows));
+  const totals = new Array(targets).fill(0);
   const dt = step / 1000;
-  let total = 0;
   for (let t = start; t < end; t += step) {
     for (const p of sampleAt(t)) {
-      if (!p.present) continue;
+      const k = (p.id ?? 1) - 1;
+      if (!p.present || k < 0 || k >= targets) continue;
       const i = Math.floor((p.x - bounds.x1) / cell), j = Math.floor((p.y - bounds.y1) / cell);
       if (i < 0 || j < 0 || i >= cols || j >= rows) continue;
-      raw[j * cols + i] += dt;
-      total += dt;
+      raw[k][j * cols + i] += dt;
+      totals[k] += dt;
     }
   }
-  const values = blur(raw, cols, rows);
+  return { cols, rows, cell, x1: bounds.x1, y1: bounds.y1, layers: raw.map((r) => blur(r, cols, rows)), totals };
+}
+
+/**
+ * The chosen targets together: time per cell, the target that spent the most of it there (its colour
+ * paints the cell), the busiest cell and the total time. visible: one boolean per target.
+ */
+export function combine(map, visible) {
+  const n = map.cols * map.rows;
+  const values = new Float32Array(n), owner = new Uint8Array(n);
   let max = 0;
-  for (const v of values) if (v > max) max = v;
-  return { cols, rows, cell, x1: bounds.x1, y1: bounds.y1, values, max, total };
+  for (let i = 0; i < n; i++) {
+    let sum = 0, best = 0, bestValue = 0;
+    map.layers.forEach((layer, k) => {
+      if (!visible[k]) return;
+      sum += layer[i];
+      if (layer[i] > bestValue) { bestValue = layer[i]; best = k; }
+    });
+    values[i] = sum;
+    owner[i] = best;
+    if (sum > max) max = sum;
+  }
+  const total = map.totals.reduce((acc, t, k) => acc + (visible[k] ? t : 0), 0);
+  return { values, owner, max, total };
 }
 
 // 3×3 kernel (1-2-1) so radar jitter doesn't paint a checkerboard. Keeps the total time.

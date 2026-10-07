@@ -7,6 +7,7 @@ import {
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
+import { combine } from './heatmap.js';
 import { mix } from './theme.js';
 
 // The scene is in metres with the sensor at the origin, `h` m above the floor. Radar → world:
@@ -268,27 +269,29 @@ export class RadarScene {
     this._refreshZones();
   }
 
-  /** map: from buildHeatmap() in the display frame, or null to remove it. */
-  setHeatmap(map) {
+  /**
+   * map: from buildHeatmap() in the display frame, or null to remove it. opts.visible: which targets to include.
+   * Each cell takes the colour of the target that spent the most time there; its opacity grows with the time.
+   */
+  setHeatmap(map, opts = {}) {
     this.dirty = true;
     clearGroup(this.heatGroup);
     this.heatOn = false;
-    if (!map || !map.max || !this.theme) return;
-    const { cols, rows, cell, x1, y1, values, max } = map;
-    const ramp = this.theme.ramp.map((h) => new Color(h));
+    if (!map || !this.theme) return;
+    const { values, owner, max } = combine(map, opts.visible ?? map.layers.map(() => true));
+    if (!max) return;
+    const { cols, rows, cell, x1, y1 } = map;
+    const colors = this.theme.targets.map((h) => new Color(h).getRGB({ r: 0, g: 0, b: 0 }, SRGBColorSpace));
     const data = new Uint8Array(cols * rows * 4);
-    const c = new Color();
     for (let j = 0; j < rows; j++) {
       for (let i = 0; i < cols; i++) {
         const v = values[j * cols + i];
         if (!v) continue;
         const n = Math.pow(v / max, 0.5);
-        const f = n * (ramp.length - 1), k = Math.min(ramp.length - 2, Math.floor(f));
-        c.lerpColors(ramp[k], ramp[k + 1], f - k);
+        const c = colors[owner[j * cols + i]];
         const o = (j * cols + (cols - 1 - i)) * 4;   // texture u runs along world X, which is -x
-        const srgb = c.clone().convertLinearToSRGB();
-        data[o] = srgb.r * 255; data[o + 1] = srgb.g * 255; data[o + 2] = srgb.b * 255;
-        data[o + 3] = Math.round(255 * (0.4 + 0.55 * n));
+        data[o] = c.r * 255; data[o + 1] = c.g * 255; data[o + 2] = c.b * 255;
+        data[o + 3] = Math.round(255 * (0.3 + 0.62 * n));
       }
     }
     const tex = new DataTexture(data, cols, rows, RGBAFormat);

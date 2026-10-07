@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { indexAt, parseHistory, historySpan, statesAt } from '../src/history.js';
-import { blur, buildHeatmap } from '../src/heatmap.js';
+import { blur, buildHeatmap, combine } from '../src/heatmap.js';
 
 test('parseHistory reads compressed and full states, sorted by time', () => {
   const h = parseHistory({
@@ -30,18 +30,36 @@ test('statesAt keeps attributes from the current states and marks the past as un
   assert.equal(statesAt(history, 1500, base)['number.z'].state, '5');
 });
 
-test('buildHeatmap adds the time each target spends in a cell', () => {
+test('buildHeatmap adds up the time each target spends in each cell', () => {
   const map = buildHeatmap({
     start: 0, end: 10000, step: 1000, cell: 1,
     bounds: { x1: -2, x2: 2, y1: 0, y2: 4 },
-    sampleAt: (t) => [{ present: true, x: 0.5, y: 1.5 }, { present: t < 5000, x: -1.5, y: 3.5 }, { present: false }],
+    sampleAt: (t) => [
+      { id: 1, present: true, x: 0.5, y: 1.5 },
+      { id: 2, present: t < 5000, x: -1.5, y: 3.5 },
+      { id: 3, present: false },
+    ],
   });
   assert.equal(map.cols, 4);
   assert.equal(map.rows, 4);
-  assert.ok(Math.abs(map.total - 15) < 1e-9);
-  const sum = map.values.reduce((a, b) => a + b, 0);
-  assert.ok(Math.abs(sum - 15) < 1e-4, 'blur keeps the total time');
-  assert.ok(map.values[1 * 4 + 2] === map.max, 'the busiest cell is where the first target stood');
+  assert.deepEqual(map.totals, [10, 5, 0]);
+  const sum = (layer) => layer.reduce((a, b) => a + b, 0);
+  assert.ok(Math.abs(sum(map.layers[0]) - 10) < 1e-4, 'blur keeps each target\'s time');
+  assert.ok(Math.abs(sum(map.layers[1]) - 5) < 1e-4);
+  assert.equal(sum(map.layers[2]), 0);
+});
+
+test('combine paints each cell with the target that spent most time there, and honours hidden targets', () => {
+  const map = { cols: 2, rows: 1, layers: [new Float32Array([4, 1]), new Float32Array([1, 3])], totals: [5, 4] };
+  const both = combine(map, [true, true]);
+  assert.deepEqual([...both.values], [5, 4]);
+  assert.deepEqual([...both.owner], [0, 1]);
+  assert.equal(both.max, 5);
+  assert.equal(both.total, 9);
+  const onlySecond = combine(map, [false, true]);
+  assert.deepEqual([...onlySecond.values], [1, 3]);
+  assert.deepEqual([...onlySecond.owner], [1, 1]);
+  assert.equal(onlySecond.total, 4);
 });
 
 test('blur spreads a point to its neighbours', () => {

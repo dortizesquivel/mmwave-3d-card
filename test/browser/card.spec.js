@@ -212,13 +212,47 @@ test('heatmap and replay read the recorder history', async ({ page }) => {
   await openDemo(page, 'cards=ld6004');
   const c = card(page);
   await c.locator('[data-mode="heatmap"]').click();
-  await expect(c.locator('.legend')).toBeVisible();
-  await expect(c.locator('.panel')).toContainText('of presence in total');
+  // One chip per person, in their colour, with their time; tapping one hides that person's trail of colour.
+  await expect(c.locator('.heat-chip')).toHaveCount(3);
+  await expect(c.locator('.heat-chip').first()).toContainText('T1 ·');
+  await expect(c.locator('.panel')).toContainText('in one spot');
+  await c.locator('.heat-chip[data-heat="0"]').click();
+  await expect(c.locator('.heat-chip[data-heat="0"]')).toHaveAttribute('aria-pressed', 'false');
+  expect(await c.evaluate((el) => el._heatVisible)).toEqual([false, true, true]);
+  expect(await c.evaluate((el) => el._scene.heatOn)).toBe(true);
   await c.locator('[data-mode="replay"]').click();
   await expect(c.locator('.panel input[type="range"]')).toBeVisible();
   const before = await c.locator('.panel .time').textContent();
   await c.locator('[data-act="play"]').click();
   await expect.poll(() => c.locator('.panel .time').textContent()).not.toBe(before);
+});
+
+test('replay keeps the table and its controls still while playing', async ({ page }) => {
+  await openDemo(page, 'cards=ld6004');
+  const c = card(page);
+  await c.locator('[data-mode="replay"]').click();
+  await expect(c.locator('.panel input[type="range"]')).toBeVisible();
+  const layout = () => c.evaluate((el) => {
+    const box = (e) => { const b = e.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.width)]; };
+    const q = (s) => el.shadowRoot.querySelector(s), qa = (s) => [...el.shadowRoot.querySelectorAll(s)];
+    return {
+      columns: qa('thead th').map(box),
+      slider: box(q('.panel input[type="range"]')),
+      play: box(q('[data-act="play"]')),
+      time: box(q('.panel .time')),
+      chips: qa('.zones .zone').map(box),
+    };
+  });
+  await c.locator('[data-speed="60"]').click();
+  const before = await layout();
+  const times = new Set();
+  await c.locator('[data-act="play"]').click();
+  for (let i = 0; i < 6; i++) {
+    await page.waitForTimeout(400);
+    expect(await layout()).toEqual(before);
+    times.add(await c.locator('.panel .time').textContent());
+  }
+  expect(times.size).toBeGreaterThan(3);              // it really was playing
 });
 
 test('the visual editor changes the card', async ({ page }) => {
@@ -247,7 +281,7 @@ test.describe('screenshots', () => {
   test('heatmap, dark theme', async ({ page }) => {
     await openDemo(page, 'theme=dark&cards=ld6004&view=plan&capture=1');
     await card(page).locator('[data-mode="heatmap"]').click();
-    await expect(card(page).locator('.legend')).toBeVisible();
+    await expect(card(page).locator('.heat-chip')).toHaveCount(3);
     await expect(card(page)).toHaveScreenshot('heatmap-dark.png');
   });
 

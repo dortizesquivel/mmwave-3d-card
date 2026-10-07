@@ -29,7 +29,7 @@ const STRINGS = {
     loadingHistory: 'Cargando historial…',
     noHistory: 'No hay historial de estas entidades en este periodo. ¿Están excluidas del recorder?',
     historyFailed: (m) => `No se pudo cargar el historial: ${m}`,
-    timeHere: 'Tiempo en cada punto', heatTotal: (d) => `${d} de presencia en total`,
+    timeHere: 'Tiempo de cada persona', heatPeak: (d) => `Hasta ${d} en un mismo punto`,
   },
   en: {
     view3d: '3D', plan: 'Plan', sensorView: 'Sensor', trail: 'Trail', zones: 'Zones',
@@ -59,7 +59,7 @@ const STRINGS = {
     loadingHistory: 'Loading history…',
     noHistory: 'No history for these entities in this period. Are they excluded from the recorder?',
     historyFailed: (m) => `Could not load the history: ${m}`,
-    timeHere: 'Time spent at each spot', heatTotal: (d) => `${d} of presence in total`,
+    timeHere: 'Time per person', heatPeak: (d) => `Up to ${d} in one spot`,
   },
 };
 
