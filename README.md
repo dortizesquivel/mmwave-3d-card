@@ -28,7 +28,7 @@ It supports two Hi-Link radars:
 - **People with height and posture**: with the LD6004, each figure is standing, sitting or lying. [More](#people-height-and-posture)
 - **Visual editor** in the dashboard UI. [More](#visual-editor)
 - **Your room**: walls, doors and furniture, so positions read against the real space. [More](#drawing-your-room)
-- **Edit zones by dragging them**, saved straight to the sensor. [More](#editing-zones)
+- **Edit, draw and delete zones** on the floor, saved straight to the sensor; on the LD6004 that includes interference and dwell zones. [More](#editing-zones)
 - **Tap a person or a zone** to open its more-info dialog. [More](#opening-an-entitys-details)
 - **Replay** the last 1, 6 or 24 hours from the recorder. [More](#replay)
 - **Heatmap** of where people spent their time. [More](#heatmap)
@@ -145,20 +145,21 @@ A quick way to get the numbers: stand in each corner the radar can see for a few
 
 ### Editing zones
 
-![Resizing the desk zone, moving the reading zone, then adding a zone and deleting it](docs/gifs/zone-editing.gif)
+![Resizing the desk zone, moving the reading zone, then drawing an interference zone and deleting it](docs/gifs/zone-editing.gif)
 
-*Resizing the desk zone, moving the reading zone, then adding a zone and deleting it.*
+*Resizing the desk zone, moving the reading zone, then drawing an interference zone and deleting it.*
 
-1. Select **Edit zones**, at the bottom right. It only appears for admin users. The card switches to the plan view and puts a handle on each corner.
+1. Select **Edit zones**, at the bottom right. It only appears for admin users. The card switches to the plan view, shows every zone (including the ones `show_interference: false` hides) and puts a handle on each corner of the zones it can change. Each kind keeps its colour.
 2. Drag a corner to resize a zone, or drag inside a zone to move it. The label shows its size as you go.
 3. Let go: the change is saved to the sensor. The zone keeps the shape you gave it until the sensor reports it back; if that takes more than 8 seconds, the card says so and draws what the sensor has.
-4. **Add zone** creates a 1 × 1 m zone in the sensor's first free slot. To remove one, tap it and select **Delete zone**.
-5. Select **Done** to go back to the view you had.
+4. To add a zone, select **Add zone**. On the LD6004, first pick its kind: **Detection**, **Interference** or **Dwell** (a kind whose four slots are taken shows *(full)*). Then drag on the floor to draw it, or tap to drop a 1 × 1 m square. **Cancel** leaves without adding anything. The zone goes into the first free slot of its kind.
+5. To remove a zone, tap it and select **Delete zone**. It is cleared on the sensor, not just hidden.
+6. Select **Done** to go back to the view you had.
 
 How each sensor stores them:
 
-- **LD2450**: the card writes `number.<prefix>_zone_N_x1 … y2` with `number.set_value`, in each entity's unit and within its limits. Whether the zones detect or filter is still set on the device (*Zone Type*).
-- **LD6004**: the card calls `esphome.<node>_set_detection_zone`, the service in the component's example YAML, and keeps each zone's height limits. Zones snap to 10 cm, because the component reports them with one decimal. With one LD6004 the card finds the service by itself; with several, set `zone_service`.
+- **LD2450**: three zones, written to `number.<prefix>_zone_N_x1 … y2` with `number.set_value`, in each entity's unit and within its limits. The three share one kind, set on the device with *Zone Type* (*Detection* or *Filter*), so new zones take that kind.
+- **LD6004**: four zones of each kind, written with the services in the component's example YAML: `esphome.<node>_set_detection_zone`, `_set_interference_zone` and `_set_dwell_zone`. Each zone keeps its height limits; new zones go from the floor to 2.2 m. Zones snap to 10 cm, because the component reports them with one decimal. With one LD6004 the card finds the services by itself; with several, set `zone_service`. A kind whose service isn't in your ESPHome YAML can't be added or changed.
 
 Set `allow_zone_editing: false` to hide the button.
 
@@ -219,7 +220,7 @@ Select **Heatmap** and a period. The card adds up how long someone was detected 
 | `zone_names` | list | `Zone 1`, `Zone 2`… | Names for the detection zones, in order |
 | `room` | object | — | Walls, doors and furniture to draw, see [Drawing your room](#drawing-your-room) |
 | `allow_zone_editing` | boolean | `true` | Show the *Edit zones* button (it only appears for admin users) |
-| `zone_service` | string | found automatically | LD6004 only: the ESPHome service that writes zones, e.g. `esphome.hlk_ld6004_set_detection_zone`. Needed when there is more than one LD6004. |
+| `zone_service` | string | found automatically | LD6004 only: one of the sensor's zone services, e.g. `esphome.hlk_ld6004_set_detection_zone`; the card finds the interference and dwell services from it. Needed when there is more than one LD6004. |
 | `entities.targets` | list | — | Replaces single entities, per target: `[{ x, y, z, speed }, …]` |
 
 ¹ Not needed if you list every entity under `entities.targets`.

@@ -210,19 +210,23 @@ const ASSETS = {
     compose(files, 'docs/images/heatmap.png', { width: 1600 });
   },
 
-  // Editing zones: resize, move, add and delete, then Done.
+  // Editing zones: resize, move, draw a new interference zone, delete it, then Done.
   async 'zone-editing'() {
     await record(async ({ page, card }) => {
       await wait(800);
       await tap(page, card.locator('[data-act="edit"]'));
       await wait(1500);
       await drag(page, await floorPoint(card, 0.6, 2.6), await floorPoint(card, 1.2, 3.1));        // resize the desk zone
-      await wait(1600);
+      await wait(1500);
       await drag(page, await floorPoint(card, 2.0, 3.4), await floorPoint(card, 2.0, 4.2));        // move the reading zone
-      await wait(1600);
+      await wait(1500);
       await tap(page, card.locator('[data-act="add"]'));
+      await wait(900);
+      await tap(page, card.locator('.panel [data-kind="interference"]'));
+      await wait(700);
+      await drag(page, await floorPoint(card, 1.4, 0.6), await floorPoint(card, 2.4, 1.6), 30);   // draw it on the floor
       await wait(1800);
-      await tap(page, await floorPoint(card, 0, 2.0));                                              // select the new zone
+      await tap(page, await floorPoint(card, 1.9, 1.1));                                            // select it
       await wait(700);
       await tap(page, card.locator('[data-act="delete"]'));
       await wait(1600);
