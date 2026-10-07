@@ -686,7 +686,7 @@ npm run test:browser              # interaction tests; screenshot comparisons on
 - **Browser tests**: the Playwright tests above, screenshots included.
 - **HACS**: the [HACS validation](.github/workflows/validate.yml), which also runs every week.
 
-Only the release and the screenshot-baseline workflows push to `main` directly.
+Only the release and the screenshot-baseline workflows push to `main` directly, with a deploy key (the `DEPLOY_KEY` secret), the ruleset's only bypass.
 
 Layout:
 

@@ -21,6 +21,9 @@ jobs:
       UPDATE: ${{ inputs.update_screenshots }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # main is protected: the new baselines go in with the deploy key, the ruleset's only bypass.
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
