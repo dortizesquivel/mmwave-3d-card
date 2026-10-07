@@ -103,7 +103,8 @@
 
   const sim = new Sim({ seed, start: q.has('t') ? Number(q.get('t')) : 13 });
   const calls = [], moreInfo = [];
-  const services = { esphome: Object.fromEntries(Object.keys(LD6004_NODES).map((n) => [`${n}_set_detection_zone`, {}])) };
+  const services = { esphome: Object.fromEntries(Object.keys(LD6004_NODES).flatMap((n) =>
+    ['detection', 'interference', 'dwell'].map((k) => [`${n}_set_${k}_zone`, {}]))) };
   const hassFor = () => ({
     states: sim.states,
     themes: { darkMode: dark, theme: 'default' },

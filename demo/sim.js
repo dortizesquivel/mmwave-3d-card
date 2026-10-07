@@ -212,10 +212,11 @@ export class Sim {
       const old = s[data.entity_id];
       if (!old) throw new Error(`Unknown entity ${data.entity_id}`);
       s[data.entity_id] = { ...old, state: String(data.value) };
-    } else if (domain === 'esphome' && service.endsWith('_set_detection_zone')) {
-      const node = LD6004_NODES[service.replace(/_set_detection_zone$/, '')];
+    } else if (domain === 'esphome' && /_set_(detection|interference|dwell)_zone$/.test(service)) {
+      const [, nodeName, kind] = service.match(/^(.+)_set_(detection|interference|dwell)_zone$/);
+      const node = LD6004_NODES[nodeName];
       if (!node) throw new Error(`Unknown service esphome.${service}`);
-      const id = `sensor.${node.prefix}_detection_zones`;
+      const id = `sensor.${node.prefix}_${kind}_zones`;
       const list = JSON.parse(s[id].state);
       const r = (v) => Math.round(v * 10) / 10;
       list[data.zone_index] = { x0: r(data.x_min), x1: r(data.x_max), y0: r(data.y_min), y1: r(data.y_max), z0: r(data.z_min), z1: r(data.z_max) };

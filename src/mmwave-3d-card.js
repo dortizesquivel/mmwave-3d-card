@@ -41,6 +41,7 @@ const STYLE = `
   .seg button { font: inherit; font-size: 12px; font-weight: 500; color: var(--secondary-text-color); background: none; border: 0;
     border-radius: 6px; padding: 8px 10px; min-height: 32px; cursor: pointer; }
   .seg button[hidden] { display: none; }
+  .seg button:disabled { opacity: .45; cursor: default; }
   .seg button:hover { color: var(--primary-text-color); background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
   .seg button[aria-pressed="true"] { color: var(--text-primary-color, #fff); background: var(--primary-color); }
   button:focus-visible, tr:focus-visible, input:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
@@ -284,6 +285,7 @@ class MmwaveRadar3dCard extends HTMLElement {
     s.onPick = (hit) => this._onPick(hit);
     s.onZoneEdit = (zone, rect) => this._saveZone(zone, rect);
     s.onZoneSelect = (zone) => { this._selectedZone = zone; this._renderPanel(); };
+    s.onZoneDraw = (rect) => this._finishAdd(rect);
     if (this._editing && this._editInfo?.supported) s.setEditMode(true);
     this._themeKey = null;
     this._sig = null;
@@ -354,7 +356,8 @@ class MmwaveRadar3dCard extends HTMLElement {
 
     const frame = buildFrame(this._adapter, hass, this._entities, this._frameOpts());
     this._frame = frame;
-    const zones = this._visibleZones(frame.zones);
+    // While editing, every zone is shown, including the ones show_interference hides.
+    const zones = this._editing ? frame.zones : this._visibleZones(frame.zones);
     this._shownZones = zones;
     const firstX = this._entities.targets[0]?.x;
     this._setStatus(firstX && !hass.states[firstX] ? this._t.missing(firstX) : null);
@@ -380,8 +383,11 @@ class MmwaveRadar3dCard extends HTMLElement {
         zoneStep: this._adapter.zoneStep,
       });
       scene.setRoom(c.room);
-      scene.setZones(zones, zones.map((z) => this._zoneName(z)), this._ui.zones,
-        zones.map((z) => this._adapter.editableKinds.includes(z.kind)));
+      scene.setZones(zones, {
+        nameFor: (z) => (z.draft ? this._t.newZone : this._zoneName(z)),
+        visible: this._ui.zones,
+        canEdit: (z) => (this._editInfo?.kinds ?? []).includes(z.kind),
+      });
       if (this._mode !== 'replay') scene.setTargets(frame.targets, (t) => this._targetLabel(t));
     }
     if (this._mode !== 'replay') this._renderReadout(frame.targets, zones);
@@ -569,16 +575,19 @@ class MmwaveRadar3dCard extends HTMLElement {
     this._setView('plan');
     this._scene?.setEditMode(this._editInfo.supported);
     this._renderPanel();
+    this._update(true);      // show every zone, with handles on the editable ones
   }
 
   _exitEdit() {
     this._editing = false;
+    this._adding = null;
     clearTimeout(this._confirmTimer);
     this._el.edit.setAttribute('aria-pressed', 'false');
     this._scene?.setEditMode(false);
     this._setView(this._viewBeforeEdit ?? this._ui.view);
     this._panelMsg = null;
     this._renderPanel();
+    this._update(true);
   }
 
   /** rect in the display frame, or null to clear the zone on the sensor. */
@@ -594,7 +603,7 @@ class MmwaveRadar3dCard extends HTMLElement {
     this._panelMsg = { text: t.saving };
     this._renderPanel();
     try {
-      await this._adapter.writeZone(this._hass, this._entities, zone.slot, sensorRect, this._editInfo);
+      await this._adapter.writeZone(this._hass, this._entities, zone, sensorRect, this._editInfo);
       this._panelMsg = { text: rect ? t.saved(this._zoneName(zone)) : t.deleted(this._zoneName(zone)) };
       this._confirmTimer = setTimeout(() => {
         if (!this._scene?.override) return;
@@ -609,19 +618,47 @@ class MmwaveRadar3dCard extends HTMLElement {
     this._renderPanel();
   }
 
-  _addZone() {
-    const a = this._adapter;
-    const used = new Set(this._frame.zones.filter((z) => a.editableKinds.includes(z.kind)).map((z) => z.slot));
-    const slot = [...Array(this._editInfo.slots).keys()].find((i) => !used.has(i));
+  /** First slot of `kind` the sensor isn't using, or undefined. */
+  _freeSlot(kind) {
+    const used = new Set(this._frame.zones.filter((z) => z.kind === kind).map((z) => z.slot));
+    return [...Array(this._editInfo.slots).keys()].find((i) => !used.has(i));
+  }
+
+  /** Add zone: pick a kind (LD6004), then draw it on the floor or tap to drop a 1 m square. */
+  _startAdd(kind) {
+    const kinds = this._editInfo.kinds.filter((k) => this._freeSlot(k) !== undefined);
+    if (!kinds.length) {
+      this._panelMsg = { text: this._t.noFreeSlot, error: true };
+      this._renderPanel();
+      return;
+    }
+    this._adding = { kind: kinds.includes(kind) ? kind : kinds[0] };
+    this._selectedZone = null;
+    this._panelMsg = null;
+    this._scene?.setDrawMode(this._adding.kind);
+    this._renderPanel();
+  }
+
+  _cancelAdd() {
+    this._adding = null;
+    this._scene?.setDrawMode(null);
+    this._renderPanel();
+  }
+
+  _finishAdd(rect) {
+    const kind = this._adding?.kind;
+    this._adding = null;
+    this._scene?.setDrawMode(null);
+    const slot = kind ? this._freeSlot(kind) : undefined;
     if (slot === undefined) {
       this._panelMsg = { text: this._t.noFreeSlot, error: true };
       this._renderPanel();
       return;
     }
-    const b = this._scene.floorBounds();
-    const cy = this._config.mount === 'ceiling' || this._frame.mount === 'ceiling' ? 0 : Math.min(2, (b.y1 + b.y2) / 2);
-    const zone = { kind: a.editableKinds[0], slot, id: slot + 1, z1: a.hasZ ? 0 : null, z2: a.hasZ ? 2.2 : null };
-    this._saveZone(zone, { x1: -0.5, x2: 0.5, y1: cy - 0.5, y2: cy + 0.5 });
+    const hasZ = this._adapter.hasZ;
+    const zone = { kind, slot, id: slot + 1, z1: hasZ ? 0 : null, z2: hasZ ? 2.2 : null };   // new LD6004 zones: floor to 2.2 m
+    this._scene?.setPending(zone, rect);
+    this._saveZone(zone, rect);
   }
 
   _deleteZone() {
@@ -638,7 +675,16 @@ class MmwaveRadar3dCard extends HTMLElement {
     if (!p) return;
     const t = this._t;
     const msg = this._panelMsg ? `<span class="msg" data-error="${!!this._panelMsg.error}">${esc(this._panelMsg.text)}</span>` : '';
-    if (this._editing) {
+    if (this._editing && this._adding) {
+      const kinds = this._editInfo.kinds;
+      const chooser = kinds.length > 1 ? `<div class="seg" role="group" aria-label="${esc(t.zoneKind)}">${kinds.map((k) => {
+        const full = this._freeSlot(k) === undefined;
+        return `<button type="button" data-kind="${k}" aria-pressed="${k === this._adding.kind}" ${full ? 'disabled' : ''}>`
+          + `${esc(t.kindLabel[k])}${full ? ` ${esc(t.full)}` : ''}</button>`;
+      }).join('')}</div>` : '';
+      p.innerHTML = `<span class="hint">${esc(t.drawHint)}</span>${chooser}
+        <button type="button" class="btn" data-act="cancel">${esc(t.cancel)}</button>${msg}`;
+    } else if (this._editing) {
       const ok = this._editInfo?.supported;
       p.innerHTML = (ok ? `<span class="hint">${esc(t.editHint)}</span>
         <button type="button" class="btn" data-act="add">${esc(t.addZone)}</button>
@@ -687,7 +733,9 @@ class MmwaveRadar3dCard extends HTMLElement {
       this._replay.t = next;
       this._showReplayFrame();
     });
-    p.querySelector('[data-act="add"]')?.addEventListener('click', () => this._addZone());
+    p.querySelector('[data-act="add"]')?.addEventListener('click', () => this._startAdd());
+    p.querySelector('[data-act="cancel"]')?.addEventListener('click', () => this._cancelAdd());
+    p.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => this._startAdd(b.dataset.kind)));
     p.querySelector('[data-act="delete"]')?.addEventListener('click', () => this._deleteZone());
     p.querySelector('[data-act="done"]')?.addEventListener('click', () => this._exitEdit());
     this._syncReplayControls();

@@ -71,7 +71,7 @@ export class RadarScene {
     this.scene.add(this.staticGroup, this.roomGroup, this.heatGroup, this.zoneGroup);
     this.zoneObjs = [];
     this.zoneSig = '';
-    this.lastZones = { zones: [], names: [], visible: true, editable: [] };
+    this.lastZones = { zones: [], nameFor: () => '', visible: true, canEdit: () => false };
     this.room = null;
     this.roomSig = '';
 
@@ -79,6 +79,9 @@ export class RadarScene {
     this.onPick = null;          // ({ kind: 'target' | 'zone', index }) => void
     this.onZoneEdit = null;      // (zone, rect) => void, rect in the display frame (metres)
     this.onZoneSelect = null;    // (zone | null) => void
+    this.onZoneDraw = null;      // (rect) => void, a new zone drawn in draw mode
+    this.drawKind = null;        // kind of zone being drawn, or null
+    this.draft = null;           // rectangle being drawn
     this.editing = false;
     this.selectedKey = null;
     this.drag = null;
@@ -191,9 +194,9 @@ export class RadarScene {
     });
   }
 
-  /** zones: from buildFrame(); names: label text for each zone; editable: per zone, whether it can be dragged. */
-  setZones(zones, names, visible, editable = []) {
-    this.lastZones = { zones, names, visible, editable };
+  /** zones: from buildFrame(); opts: { nameFor(zone) → label, visible, canEdit(zone) → whether edit mode may change it }. */
+  setZones(zones, opts = {}) {
+    this.lastZones = { zones, nameFor: opts.nameFor ?? (() => ''), visible: opts.visible ?? true, canEdit: opts.canEdit ?? (() => false) };
     // The sensor has confirmed a dragged zone once it reports (almost) the same rectangle.
     if (this.override) {
       const z = zones.find((x) => zoneKey(x) === this.override.key);
@@ -208,13 +211,43 @@ export class RadarScene {
     this._refreshZones();
   }
 
+  /** Shows a zone just written to the sensor, new ones included, until the sensor reports it back. */
+  setPending(zone, rect) {
+    this.override = { key: zoneKey(zone), rect: roundRect(rect), zone };
+    this._refreshZones();
+  }
+
+  /** Draw mode for a new zone of `kind` (null leaves it): drag on the floor, or tap for a 1 m square. */
+  setDrawMode(kind) {
+    this.drawKind = kind;
+    this.draft = null;
+    this.renderer.domElement.style.cursor = kind ? 'crosshair' : '';
+    this._refreshZones();
+  }
+
+  /** The zones as drawn: sensor zones with any pending edit applied, a pending new zone and the draft. */
+  _shownZones() {
+    const { zones } = this.lastZones;
+    const o = this.override;
+    const shown = zones.map((z) => (o && zoneKey(z) === o.key ? { ...z, ...o.rect } : z));
+    if (o?.zone && !zones.some((z) => zoneKey(z) === o.key)) {
+      shown.push({ ...o.zone, ...o.rect, occupied: false, inside: 0, count: null, entity: null, preview: true });
+    }
+    if (this.draft) {
+      shown.push({ kind: this.drawKind, slot: -1, id: 0, ...this.draft, z1: null, z2: null, occupied: false, preview: true, draft: true });
+    }
+    return shown;
+  }
+
   _refreshZones() {
     this.dirty = true;
-    const { zones, names, visible, editable } = this.lastZones;
+    const { nameFor, visible, canEdit } = this.lastZones;
     this.zoneGroup.visible = visible || this.editing;
     if (!this.theme) return;
-    const shown = zones.map((z) => (this.override && zoneKey(z) === this.override.key ? { ...z, ...this.override.rect } : z));
-    const sig = JSON.stringify([shown.map((z) => [z.kind, z.slot, z.x1, z.x2, z.y1, z.y2, z.z1, z.z2]), names, editable,
+    const shown = this._shownZones();
+    const names = shown.map((z) => nameFor(z));
+    const editable = shown.map((z) => this.editing && !z.preview && canEdit(z));
+    const sig = JSON.stringify([shown.map((z) => [z.kind, z.slot, z.x1, z.x2, z.y1, z.y2, z.z1, z.z2, !!z.preview]), names, editable,
       this.editing, this.selectedKey]);
     if (sig !== this.zoneSig) {
       this.zoneSig = sig;
@@ -230,7 +263,7 @@ export class RadarScene {
     this.editing = on;
     this.controls.enableRotate = !on;
     this.controls.enablePan = !on;
-    if (!on) { this.drag = null; this.selectedKey = null; }
+    if (!on) { this.drag = null; this.selectedKey = null; this.drawKind = null; this.draft = null; this.renderer.domElement.style.cursor = ''; }
     this._refreshZones();
   }
 
@@ -321,9 +354,15 @@ export class RadarScene {
   }
 
   _editableZones() {
-    const { zones, editable } = this.lastZones;
-    return zones.map((z, i) => ({ z, i, rect: this.override && zoneKey(z) === this.override.key ? this.override.rect : rectOf(z) }))
-      .filter(({ i }) => editable[i]);
+    const { zones, canEdit } = this.lastZones;
+    if (!this.editing) return [];
+    return zones.filter((z) => canEdit(z))
+      .map((z) => ({ z, rect: this.override && zoneKey(z) === this.override.key ? this.override.rect : rectOf(z) }));
+  }
+
+  _snap(v) {
+    const step = this.layout?.zoneStep ?? 0.05;
+    return Math.round(v / step) * step;
   }
 
   _pointerDown(e) {
@@ -332,6 +371,11 @@ export class RadarScene {
     if (!this.editing) return;
     const p = this._floorAt(e);
     if (!p) return;
+    if (this.drawKind) {
+      this.drag = { mode: 'draw', start: p, moved: false };
+      this.renderer.domElement.setPointerCapture?.(e.pointerId);
+      return;
+    }
     const tol = 0.035 * this.camera.position.distanceTo(this.controls.target);
     const list = this._editableZones();
     let hit = null;
@@ -360,8 +404,14 @@ export class RadarScene {
     if (!d) return;
     const p = this._floorAt(e);
     if (!p) return;
-    const step = this.layout?.zoneStep ?? 0.05;
-    const snap = (v) => Math.round(v / step) * step;
+    const snap = (v) => this._snap(v);
+    if (d.mode === 'draw') {
+      d.moved = d.moved || Math.hypot(p.x - d.start.x, p.y - d.start.y) > 0.1;
+      const [ax, ay, bx, by] = [snap(d.start.x), snap(d.start.y), snap(p.x), snap(p.y)];
+      this.draft = roundRect({ x1: Math.min(ax, bx), x2: Math.max(ax, bx), y1: Math.min(ay, by), y2: Math.max(ay, by) });
+      this._refreshZones();
+      return;
+    }
     let rect;
     if (d.mode === 'move') {
       const dx = snap(p.x - d.start.x), dy = snap(p.y - d.start.y);
@@ -377,7 +427,8 @@ export class RadarScene {
       };
     }
     rect = roundRect(rect);
-    d.moved = d.moved || !sameRect(rect, d.rect);
+    if (!d.moved && sameRect(rect, d.rect)) return;     // a tap selects; only a real drag becomes an edit
+    d.moved = true;
     this.override = { key: zoneKey(d.z), rect };
     this._refreshZones();
   }
@@ -389,8 +440,21 @@ export class RadarScene {
       const d = this.drag;
       this.drag = null;
       this.renderer.domElement.releasePointerCapture?.(e.pointerId);
+      if (d.mode === 'draw') {
+        let rect;
+        if (d.moved && this.draft) {
+          const r = this.draft;
+          rect = { x1: r.x1, x2: Math.max(r.x2, r.x1 + MIN_ZONE), y1: r.y1, y2: Math.max(r.y2, r.y1 + MIN_ZONE) };
+        } else {
+          const cx = this._snap(d.start.x), cy = this._snap(d.start.y);
+          rect = { x1: cx - 0.5, x2: cx + 0.5, y1: cy - 0.5, y2: cy + 0.5 };
+        }
+        this.draft = null;
+        if (e.type !== 'pointercancel') this.onZoneDraw?.(roundRect(rect));
+        this._refreshZones();
+        return;
+      }
       if (d.moved && this.override) this.onZoneEdit?.(d.z, this.override.rect);
-      else if (!d.moved) this.override = null;
       this._refreshZones();
       return;
     }
@@ -757,25 +821,30 @@ export class RadarScene {
       const edges = new LineSegments(new EdgesGeometry(new BoxGeometry(w, y1 - y0, d)), edgesMat);
       edges.position.set(cx, (y0 + y1) / 2, cz);
       if (z.kind === 'dwell') edges.computeLineDistances();
-      const canEdit = this.editing && editable[i];
+      const canEdit = editable[i];
+      const preview = !!z.preview;              // being drawn, or written and waiting for the sensor
       const selected = canEdit && zoneKey(z) === this.selectedKey;
-      const text = canEdit ? `${names[i] ?? ''} · ${dims.format(w)} × ${dims.format(d)} m` : names[i] ?? '';
+      const editCol = isExclude ? exclude : z.kind === 'dwell' ? idle : active;   // keep each kind's colour while editing
+      const text = canEdit || preview ? `${names[i] ?? ''} · ${dims.format(w)} × ${dims.format(d)} m` : names[i] ?? '';
       const el = label(text, 'zlabel', V(cx, y1 + 0.12, cz));
       // Invisible box for tapping the zone.
       const pick = new Mesh(new BoxGeometry(w, y1 - y0, d), new MeshBasicMaterial({ visible: false }));
       pick.position.copy(edges.position);
       this.zoneGroup.add(fill, edges, el, pick);
-      if (canEdit) {
+      if (canEdit || preview) {
         el.element.dataset.edit = 'true';
-        edges.material.color.copy(active);
-        edges.material.opacity = selected ? 1 : 0.7;
+        edges.material.color.copy(editCol);
+        edges.material.opacity = selected || preview ? 1 : 0.7;
+        if (preview && !isExclude) fill.material.opacity = 0.16;
+      }
+      if (canEdit) {
         for (const [hx, hz] of [[xa, z.y1], [xa, z.y2], [xb, z.y1], [xb, z.y2]]) {
-          const handle = flat(new CircleGeometry(selected ? 0.11 : 0.08, 24), active, 0.95, 0.03);
+          const handle = flat(new CircleGeometry(selected ? 0.11 : 0.08, 24), editCol, 0.95, 0.03);
           handle.position.set(hx, 0.03, hz);
           this.zoneGroup.add(handle);
         }
       }
-      return { fill, edges, el: el.element, pick, base, active, glow: 0, on: 0, isExclude, fixed: canEdit };
+      return { fill, edges, el: el.element, pick, base, active, glow: 0, on: 0, isExclude, fixed: canEdit || preview };
     });
   }
 

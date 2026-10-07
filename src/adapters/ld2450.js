@@ -70,16 +70,21 @@ export const ld2450 = {
     return { targets, zones, mount: null };
   },
 
-  /** Whether the card can move this sensor's zones. */
+  /**
+   * Whether the card can edit this sensor's zones, and which kinds it can add. All three slots share the
+   * device's Zone Type, so new zones take whichever kind the existing ones have.
+   */
   zoneEditing(hass, ent) {
-    if (readText(hass, ent.zoneType) === 'Disabled') return { supported: false, reason: 'zonesDisabled' };
+    const type = readText(hass, ent.zoneType);
+    if (type === 'Disabled') return { supported: false, reason: 'zonesDisabled' };
     const ok = ent.zones.every((z) => [z.x1, z.y1, z.x2, z.y2].every((id) => hass.states[id]));
-    return ok ? { supported: true, slots: ent.zones.length } : { supported: false, reason: 'missingNumbers' };
+    if (!ok) return { supported: false, reason: 'missingNumbers' };
+    return { supported: true, slots: ent.zones.length, kinds: [type === 'Filter' ? 'filter' : 'detection'] };
   },
 
-  /** Writes a zone (sensor frame, metres) to the four number entities of `slot`; null clears it. */
-  async writeZone(hass, ent, slot, rect) {
-    const e = ent.zones[slot];
+  /** Writes a zone (sensor frame, metres) to the four number entities of its slot; null clears it. */
+  async writeZone(hass, ent, zone, rect) {
+    const e = ent.zones[zone.slot];
     const v = rect
       ? { x1: Math.min(rect.x1, rect.x2), y1: Math.min(rect.y1, rect.y2), x2: Math.max(rect.x1, rect.x2), y2: Math.max(rect.y1, rect.y2) }
       : { x1: 0, y1: 0, x2: 0, y2: 0 };

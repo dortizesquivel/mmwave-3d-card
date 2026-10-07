@@ -140,3 +140,61 @@ test('classifyPosture uses the configured thresholds', () => {
   assert.equal(classifyPosture(0.7, th), 'sitting');
   assert.equal(classifyPosture(0.3, th), 'lying');
 });
+
+// ---------- zone editing ----------
+
+function fakeHass(states, services = {}) {
+  const calls = [];
+  return { states, services, calls, callService: async (domain, service, data) => { calls.push({ domain, service, data }); } };
+}
+
+test('LD2450: new zones take the kind of the device Zone Type', () => {
+  const a = getAdapter('ld2450');
+  const ent = resolveEntities(a, { prefix: 'estudio' });
+  const states = { ...ld2450States('estudio'), 'number.estudio_zone_3_x1': st(0), 'number.estudio_zone_3_y1': st(0), 'number.estudio_zone_3_x2': st(0), 'number.estudio_zone_3_y2': st(0) };
+  assert.deepEqual(a.zoneEditing({ states }, ent), { supported: true, slots: 3, kinds: ['detection'] });
+  states['select.estudio_zone_type'] = st('Filter');
+  assert.deepEqual(a.zoneEditing({ states }, ent).kinds, ['filter']);
+  states['select.estudio_zone_type'] = st('Disabled');
+  assert.deepEqual(a.zoneEditing({ states }, ent), { supported: false, reason: 'zonesDisabled' });
+});
+
+test('LD2450: writeZone sets the four numbers in the entity unit, rounded and clamped; null clears them', async () => {
+  const a = getAdapter('ld2450');
+  const ent = resolveEntities(a, { prefix: 'e' });
+  const num = (v) => ({ state: String(v), attributes: { unit_of_measurement: 'mm', min: -4000, max: 6000, step: 10 } });
+  const hass = fakeHass({ 'number.e_zone_2_x1': num(0), 'number.e_zone_2_y1': num(0), 'number.e_zone_2_x2': num(0), 'number.e_zone_2_y2': num(0) });
+  await a.writeZone(hass, ent, { kind: 'detection', slot: 1 }, { x1: 0.5, x2: -4.5, y1: 3.004, y2: 1.2 });
+  assert.deepEqual(hass.calls.map((c) => [c.data.entity_id, c.data.value]), [
+    ['number.e_zone_2_x1', -4000], ['number.e_zone_2_y1', 1200], ['number.e_zone_2_x2', 500], ['number.e_zone_2_y2', 3000],
+  ]);
+  hass.calls.length = 0;
+  await a.writeZone(hass, ent, { kind: 'detection', slot: 1 }, null);
+  assert.deepEqual(hass.calls.map((c) => c.data.value), [0, 0, 0, 0]);
+});
+
+test('LD6004: finds its node and the zone kinds it can write', () => {
+  const a = getAdapter('ld6004');
+  const ent = resolveEntities(a, { prefix: 'radar' });
+  const svc = (...names) => ({ esphome: Object.fromEntries(names.map((n) => [n, {}])) });
+  const two = svc('hlk_set_detection_zone', 'hlk_set_interference_zone');
+  assert.deepEqual(a.zoneEditing({ states: {}, services: two }, ent, {}), { supported: true, node: 'hlk', kinds: ['detection', 'interference'], slots: 4 });
+  const many = svc('a_set_detection_zone', 'b_set_detection_zone', 'b_set_dwell_zone');
+  assert.deepEqual(a.zoneEditing({ states: {}, services: many }, ent, {}), { supported: false, reason: 'serviceAmbiguous' });
+  assert.deepEqual(a.zoneEditing({ states: {}, services: many }, ent, { zone_service: 'esphome.b_set_detection_zone' }).kinds, ['detection', 'dwell']);
+  assert.deepEqual(a.zoneEditing({ states: {}, services: many }, ent, { zone_service: 'esphome.c_set_detection_zone' }), { supported: false, reason: 'serviceNotFound' });
+  assert.deepEqual(a.zoneEditing({ states: {}, services: {} }, ent, {}), { supported: false, reason: 'serviceNotFound' });
+});
+
+test('LD6004: writeZone calls the service of the zone kind, rounding to millimetres', async () => {
+  const a = getAdapter('ld6004');
+  const ent = resolveEntities(a, { prefix: 'radar' });
+  const hass = fakeHass({});
+  const editing = { node: 'hlk' };
+  await a.writeZone(hass, ent, { kind: 'interference', slot: 2 }, { x1: 1.1, x2: 0.3, y1: 0.5, y2: 1.5, z1: 0 - 1.5, z2: 1.3 - 1.5 }, editing);
+  assert.deepEqual(hass.calls[0], { domain: 'esphome', service: 'hlk_set_interference_zone',
+    data: { zone_index: 2, x_min: 0.3, x_max: 1.1, y_min: 0.5, y_max: 1.5, z_min: -1.5, z_max: -0.2 } });
+  await a.writeZone(hass, ent, { kind: 'dwell', slot: 0 }, null, editing);
+  assert.deepEqual(hass.calls[1], { domain: 'esphome', service: 'hlk_set_dwell_zone',
+    data: { zone_index: 0, x_min: 0, x_max: 0, y_min: 0, y_max: 0, z_min: 0, z_max: 0 } });
+});
