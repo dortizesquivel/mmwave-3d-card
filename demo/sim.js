@@ -207,7 +207,8 @@ export class Sim {
     const seen = this.people.map((q) => ({ q, d: Math.hypot(q.x, q.y), a: Math.atan2(q.x, q.y) }))
       .filter(({ q, d, a }) => q.present && Math.abs(a) <= cfg.half && d <= cfg.maxGate * cfg.res);
     const moving = seen.filter(({ q }) => q.act.walk).sort((m, n) => m.d - n.d);
-    const still = seen.filter(({ q }) => !q.act.walk).sort((m, n) => m.d - n.d);
+    // Like the real module, someone walking also shows up as the still target when nobody nearer is still.
+    const still = [...seen].sort((m, n) => m.d - n.d);
     const energy = (d) => Math.max(20, Math.min(100, 100 - d * 14 + this.gauss() * 4));
     const pub = (kind, list, energyKey) => {
       const on = list.length > 0;

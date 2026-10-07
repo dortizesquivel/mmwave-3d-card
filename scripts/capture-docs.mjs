@@ -97,14 +97,14 @@ function gif(video, out, { skip, duration, box, width = 520, fps = 10, colors = 
     '[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle', '-loop', '0', out);
 }
 
-async function record(fn, { query, out, width = 760, height = 800, crop }) {
+async function record(fn, { query, out, width = 760, height = 800, crop, ...gifOpts }) {
   const s = await open({ query, width, height, still: false, video: true });
   await fn(s);
   const duration = (Date.now() - s.started) / 1000 - s.skip;
   const box = crop ? await crop(s) : { x: 12, y: 12, width: width - 24, height: height - 24 };
   const video = await s.page.video().path();
   await s.ctx.close();
-  gif(video, out, { skip: s.skip, duration, box });
+  gif(video, out, { skip: s.skip, duration, box, ...gifOpts });
 }
 
 const viewport = (card) => card.locator('.viewport');
@@ -190,6 +190,44 @@ const ASSETS = {
     const { ctx, card } = await open({ query: 't=45&frozen=1&cards=ld2410', width: 760 });
     await card.screenshot({ path: 'docs/images/ld2410.png' });
     await ctx.close();
+  },
+
+  // LD2410 tour: a still target breathing and a moving one rippling away, a turn of the camera around the
+  // beam's volume, both in one gate taking turns, the plan view, and someone walking back to the sensor.
+  async 'ld2410-tour'() {
+    await record(async ({ page, card }) => {
+      await wait(4000);
+      const b = await viewport(card).boundingBox();
+      await drag(page, { x: b.x + b.width * 0.45, y: b.y + b.height * 0.62 }, { x: b.x + b.width * 0.49, y: b.y + b.height * 0.61 }, 40);
+      await wait(4500);
+      await tap(page, card.locator('[data-view="plan"]'));
+      await wait(3500);
+      await tap(page, card.locator('[data-view="3d"]'));
+      await wait(1800);
+    }, {
+      query: 't=4.5&cards=ld2410&cursor=1', out: 'docs/gifs/ld2410.gif', height: 860, fps: 8, width: 480, colors: 48,
+      crop: async ({ card }) => card.boundingBox(),
+    });
+  },
+
+  // A preview per sensor for the gallery: the whole card, and a few seconds of its 3D view.
+  async sensors() {
+    mkdirSync('docs/sensors', { recursive: true });
+    for (const [name, cards, t] of [['ld2450', 'ld2450', 48], ['ld6004-wall', 'ld6004', 48], ['ld6004-ceiling', 'ceiling', 48], ['ld2410', 'ld2410', 13]]) {
+      const { ctx, card } = await open({ query: `t=${t}&frozen=1&cards=${cards}`, width: 760 });
+      await card.screenshot({ path: `docs/sensors/${name}.png` });
+      await ctx.close();
+      await record(async ({ page, card: c }) => {
+        await wait(1500);
+        const b = await viewport(c).boundingBox();
+        await page.mouse.move(b.x + b.width * 0.4, b.y + b.height * 0.6);
+        await drag(page, { x: b.x + b.width * 0.4, y: b.y + b.height * 0.6 }, { x: b.x + b.width * 0.58, y: b.y + b.height * 0.56 }, 60);
+        await wait(3500);
+      }, {
+        query: `t=${t}&cards=${cards}`, out: `docs/sensors/${name}.gif`, height: 560,
+        crop: async ({ card: c }) => viewport(c).boundingBox(),
+      });
+    }
   },
 
   // The visual editor next to the card it edits.

@@ -3,7 +3,7 @@ import {
   DataTexture, DirectionalLight, DoubleSide, EdgesGeometry, Fog, Group, HemisphereLight, Line, LinearFilter, LineBasicMaterial,
   LineDashedMaterial, LineSegments, Mesh, MeshBasicMaterial, MeshStandardMaterial, PCFShadowMap, PerspectiveCamera, Plane,
   PlaneGeometry, Raycaster, RepeatWrapping, RGBAFormat, RingGeometry, Scene, ShadowMaterial, Shape, ShapeGeometry,
-  SphereGeometry, SRGBColorSpace, TOUCH, Vector2, Vector3, WebGLRenderer,
+  ShaderMaterial, SphereGeometry, SRGBColorSpace, TOUCH, Vector2, Vector3, WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
@@ -27,6 +27,56 @@ const POSES = {
 };
 
 const ease = (s) => (s < 0.5 ? 4 * s * s * s : 1 - Math.pow(-2 * s + 2, 3) / 2);
+
+// Detections of a distance-only sensor. The same shader draws the band on the floor (`flatBand`: radius
+// measured on the floor) and, in 3D, the spherical shells around the sensor where the target can be
+// (radius measured from the sensor, cut at the floor and the ceiling, faded at the beam's edge).
+// Moving: one crest per `wave` metres runs the way the target is going (phase grows away from the sensor
+// or towards it). Still: the whole band breathes. With moving = 0 and breath = 1 it is a plain glow, used
+// for the scan wave and the coverage.
+const BEAM_SHADER = {
+  vertexShader: `
+    varying vec3 vW;
+    void main() {
+      vec4 w = modelMatrix * vec4(position, 1.0);
+      vW = w.xyz;
+      gl_Position = projectionMatrix * viewMatrix * w;
+    }`,
+  fragmentShader: `
+    uniform vec3 color, origin, axis;
+    uniform float opacity, moving, phase, breath, r0, r1, wave, flatBand, yMax, cosHalf;
+    varying vec3 vW;
+    void main() {
+      vec3 d = vW - origin;
+      float r = flatBand > 0.5 ? length(vW.xz) : length(d);
+      float shade = 1.0;
+      if (flatBand < 0.5) {
+        if (vW.y < 0.0 || vW.y > yMax) discard;
+        vec3 n = normalize(d);
+        float facing = abs(dot(n, normalize(cameraPosition - vW)));
+        shade = (0.45 + 0.9 * (1.0 - facing)) * smoothstep(cosHalf, cosHalf + 0.12, dot(n, axis));
+      }
+      float u = clamp((r - r0) / max(r1 - r0, 0.001), 0.0, 1.0);
+      float edge = smoothstep(0.0, 0.2, u) * smoothstep(0.0, 0.2, 1.0 - u);
+      float crest = pow(0.5 + 0.5 * cos(6.2832 * (r - phase) / wave), 3.0);
+      float a = mix(0.1 + 0.16 * breath, 0.08 + 0.5 * crest, moving);
+      gl_FragColor = vec4(color, a * edge * shade * opacity);
+      #include <colorspace_fragment>
+    }`,
+};
+const beamMaterial = (uniforms) => new ShaderMaterial({
+  ...BEAM_SHADER,
+  uniforms: Object.fromEntries(Object.entries({
+    color: new Color(), origin: new Vector3(), axis: new Vector3(0, 0, 1), opacity: 0, moving: 0, phase: 0, breath: 0.5,
+    r0: -100, r1: 100, wave: 0.25, flatBand: 0, yMax: 100, cosHalf: -1, ...uniforms,
+  }).map(([k, v]) => [k, { value: v }])),
+  transparent: true, depthWrite: false, side: DoubleSide,
+});
+const SHELL_LAYERS = 6;       // a detection in 3D: this many shells across its gate…
+const SHELL_GAIN = 0.45;      // …each one fainter than the floor band, as they add up
+const RIPPLE_SPEED = 0.6;     // m/s the crests travel
+const BREATH_HZ = 0.35;
+const SWAP_S = 2.4;           // moving and still in the same gate take turns, one colour each half
 
 export class RadarScene {
   constructor(container) {
@@ -72,6 +122,7 @@ export class RadarScene {
     this.rangeSig = '';
     this.ranges = null;
     this.arcs = null;
+    this.vol = null;            // 1D sensors in 3D: the beam's volume, its scan wave and the detection shells
     this.zoneGroup = new Group();
     this.scene.add(this.staticGroup, this.roomGroup, this.heatGroup, this.zoneGroup, this.rangeGroup);
     this.zoneObjs = [];
@@ -172,6 +223,7 @@ export class RadarScene {
       this._buildStatic();
       this._buildRoom();
       this.setView(this.view, true);
+      if (this.ranges) this.setRanges(this.ranges, this.rangeLabels);     // the beam is cut at the room's ceiling
     }
   }
 
@@ -317,6 +369,7 @@ export class RadarScene {
   /** 1D heatmap: a band per distance bin, coloured by whichever kind (moving or still) spent most time there. */
   _ringHeat(map, values, owner, max) {
     const colors = this.theme.targets.map((h) => new Color(h));
+    const fy = this._fanY();
     values.forEach((v, i) => {
       if (!v) return;
       const n = Math.pow(v / max, 0.5);
@@ -324,7 +377,7 @@ export class RadarScene {
       const pts = this._rangeArc(1, 0), pos = [];
       for (let k = 0; k < pts.length - 1; k++) {
         const [p0, p1] = [pts[k], pts[k + 1]];
-        const q = (p, rad) => [p.x * rad, 0.02, p.z * rad];
+        const q = (p, rad) => [p.x * rad, fy + 0.02, p.z * rad];
         pos.push(...q(p0, r0), ...q(p0, r1), ...q(p1, r1), ...q(p0, r0), ...q(p1, r1), ...q(p1, r0));
       }
       const geo = new BufferGeometry();
@@ -355,11 +408,11 @@ export class RadarScene {
     this.ranges = ranges;
     this.rangeLabels = labels;
     if (!ranges || !this.theme || !this.layout) {
-      if (!ranges) { clearGroup(this.rangeGroup); this.rangeSig = ''; this.arcs = null; }
+      if (!ranges) { clearGroup(this.rangeGroup); this.rangeSig = ''; this.arcs = null; this.vol = null; }
       return;
     }
     const sig = JSON.stringify([ranges.resolution, ranges.gates.length, ranges.moveLimit, ranges.stillLimit,
-      this.layout.mount, this.layout.fov, this.layout.h, this.theme, labels.moveLimit, labels.stillLimit]);
+      this.layout.mount, this.layout.fov, this.layout.h, this.room?.wall_height, this.theme, labels.moveLimit, labels.stillLimit, labels.bothLimits]);
     if (sig !== this.rangeSig) {
       this.rangeSig = sig;
       this._buildRanges();
@@ -368,17 +421,37 @@ export class RadarScene {
       const a = this.arcs[kind], t = ranges[kind];
       a.present = t.present;
       if (t.present) {
-        a.goal = this._horizontal(t.distance);
+        const goal = this._horizontal(t.distance);
+        // Ripples follow the target: away from the sensor or towards it. Small jitter keeps the last way.
+        if (a.shown !== null && a.presence >= 0.05 && Math.abs(goal - a.goal) > 0.05) a.dir = Math.sign(goal - a.goal);
+        a.goal = goal;
         if (a.shown === null || a.presence < 0.05) a.shown = a.goal;
         a.text.textContent = labels[kind](t);
       }
     }
   }
 
-  /** Horizontal distance on the floor for a measured (slant) distance, with the target's centre about 1 m up. */
+  /**
+   * Height of the coverage fan. A distance-only sensor on a wall draws it as the horizontal slice through
+   * the sensor, in the middle of its beam: there a measured distance is the radius as it is. Otherwise the
+   * fan lies on the floor.
+   */
+  _fanY() {
+    return this.layout?.slice && this.layout.mount !== 'ceiling' ? this.layout.h : 0;
+  }
+
+  /** Radius on the fan for a measured (slant) distance. On the floor, the target's centre is about 1 m up. */
   _horizontal(d) {
+    if (this._fanY()) return d;
     const dh = Math.max(0, (this.layout?.h ?? 1.5) - 1);
     return Math.sqrt(Math.max(0, d * d - dh * dh));
+  }
+
+  /** The measured distance back from a radius on the fan. */
+  _slant(r) {
+    if (this._fanY()) return r;
+    const dh = Math.max(0, (this.layout?.h ?? 1.5) - 1);
+    return Math.sqrt(r * r + dh * dh);
   }
 
   _rangeArc(r, y) {
@@ -392,61 +465,106 @@ export class RadarScene {
     const e = this._extent();
     const ceiling = this.layout.mount === 'ceiling';
     const outer = Math.min(e.r, r.gates.length * r.resolution);
+    const fy = this._fanY();
     // Gate boundaries, with each gate's number at its middle just outside the fan.
-    for (let k = 1; k * r.resolution <= outer + 1e-6; k++) g.add(line(this._rangeArc(this._horizontal(k * r.resolution), 0.006), th.fg2, 0.35));
+    for (let k = 1; k * r.resolution <= outer + 1e-6; k++) g.add(line(this._rangeArc(this._horizontal(k * r.resolution), fy + 0.006), th.fg2, 0.35));
     r.gates.forEach((gate) => {
       const mid = this._horizontal((gate.from + gate.to) / 2);
       if (mid > e.r) return;
       const a = ceiling ? Math.PI * 1.25 : e.half + 0.05;     // opposite side to the distance labels
-      g.add(label(L.gate(gate.index), 'axis', V(Math.sin(a) * mid, 0.02, Math.cos(a) * mid)));
+      g.add(label(L.gate(gate.index), 'axis', V(Math.sin(a) * mid, fy + 0.02, Math.cos(a) * mid)));
     });
     // How far the sensor is set to look, for movement and for still targets.
     const limit = (dist, color, text, angle) => {
       if (dist === null) return;
       const rr = this._horizontal(dist);
-      const l = new Line(new BufferGeometry().setFromPoints(this._rangeArc(rr, 0.012)),
+      const l = new Line(new BufferGeometry().setFromPoints(this._rangeArc(rr, fy + 0.012)),
         new LineDashedMaterial({ color, dashSize: 0.14, gapSize: 0.1, transparent: true, opacity: 0.9 }));
       l.computeLineDistances();
-      g.add(l, label(text, 'axis', V(Math.sin(angle) * (rr + 0.2), 0.02, Math.cos(angle) * (rr + 0.2))));
+      g.add(l, label(text, 'axis', V(Math.sin(angle) * (rr + 0.2), fy + 0.02, Math.cos(angle) * (rr + 0.2))));
     };
     const same = r.moveLimit !== null && r.moveLimit === r.stillLimit;
-    limit(r.moveLimit, th.targets[0], same ? `${L.moveLimit} · ${L.stillLimit}` : L.moveLimit, ceiling ? Math.PI * 0.75 : e.half * 0.55);
-    if (!same) limit(r.stillLimit, th.targets[1], L.stillLimit, ceiling ? Math.PI * 0.6 : -e.half * 0.55);
+    // On the wall, on the centre line: clear of the gate numbers on one side and the detections on the other.
+    limit(r.moveLimit, th.targets[0], same ? L.bothLimits ?? `${L.moveLimit} · ${L.stillLimit}` : L.moveLimit, ceiling ? Math.PI * 0.75 : 0);
+    if (!same) limit(r.stillLimit, th.targets[1], L.stillLimit, ceiling ? Math.PI * 0.6 : 0);
 
-    // The two detections: a soft band one gate wide and a bright line at the measured distance.
+    // The beam in 3D: the sensor sees a cone (±fov/2) around its axis, so a distance is a spherical shell
+    // inside that cone, cut by the floor and the ceiling. Shown in the 3D and sensor views.
+    const half = e.half;
+    const cap = new SphereGeometry(1, 72, 18, 0, Math.PI * 2, 0, Math.min(half, Math.PI / 2));
+    const axis = ceiling ? V(0, -1, 0) : V(0, 0, 1);
+    const origin = V(0, this.layout.h, 0);
+    const yMax = this.room ? this.room.wall_height : ceiling ? this.layout.h + 0.01 : Math.max(2.6, this.layout.h + 0.4);
+    const shared = { origin, axis, yMax, cosHalf: Math.cos(Math.min(half, Math.PI / 2)) };
+    const shell = (material, radius) => {
+      const m = new Mesh(cap, material);
+      m.position.copy(origin);
+      m.rotation.x = ceiling ? Math.PI : Math.PI / 2;      // the cap opens around +Y: turn it to the beam's axis
+      m.scale.setScalar(radius);
+      m.renderOrder = 3;
+      return m;
+    };
+    const vol = new Group();
+    const reach = Math.max(r.moveLimit ?? 0, r.stillLimit ?? 0) || r.gates.length * r.resolution || this.layout.range;
+    vol.add(shell(beamMaterial({ ...shared, color: new Color(th.accent), opacity: th.dark ? 0.45 : 0.4, breath: 0 }), reach));
+    const pulse = shell(beamMaterial({ ...shared, color: new Color(th.accent), breath: 1 }), 1);
+    vol.add(pulse);
+    g.add(vol);
+    this.vol = { group: vol, pulse, reach, cap };
+
+    // The two detections: an animated band one gate wide on the floor, a bright line at the measured
+    // distance and, in 3D, shells one gate thick.
     this.arcs = {};
     ['moving', 'still'].forEach((kind, i) => {
       const color = new Color(th.targets[i]);
-      const band = new Mesh(new BufferGeometry(), new MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, side: DoubleSide }));
+      const moving = kind === 'moving' ? 1 : 0;
+      const band = new Mesh(new BufferGeometry(), beamMaterial({ color, moving, flatBand: 1 }));
+      const shellMat = beamMaterial({ ...shared, color, moving, wave: r.resolution });
+      const layers = Array.from({ length: SHELL_LAYERS }, () => shell(shellMat, 1));
+      vol.add(...layers);
       const arc = new Line(new BufferGeometry(), new LineBasicMaterial({ color, transparent: true, opacity: 0 }));
       const el = document.createElement('div');
       el.className = 'tag';
       el.innerHTML = `<i style="background:${th.targets[i]}"></i><span></span>`;
       const tag = new CSS2DObject(el);
       g.add(band, arc, tag);
-      this.arcs[kind] = { band, arc, tag, el, text: el.querySelector('span'), present: false, presence: 0, goal: 0, shown: null, built: -1 };
+      this.arcs[kind] = {
+        band, arc, tag, el, layers, shellMat, text: el.querySelector('span'),
+        present: false, presence: 0, goal: 0, shown: null, built: -1, dir: 1, phase: 0,
+      };
     });
+    this.swap = 0;      // 0…1: how much the two bands are taking turns (they overlap)
   }
 
-  /** Rebuilds an arc's band and line at radius r (they change size, so they can't just be scaled). */
+  /** Rebuilds an arc's band and line at floor radius r (they change size, so they can't just be scaled). */
   _placeArc(a, r) {
     const half = Math.max(0.05, (this.ranges.resolution) / 2);
     const inner = Math.max(0, r - half), outerR = r + half;
+    const fy = this._fanY();
     const pts = this._rangeArc(1, 0);
     const pos = [];
     for (let k = 0; k < pts.length - 1; k++) {
       const [p0, p1] = [pts[k], pts[k + 1]];
-      const q = (p, rad) => [p.x * rad, 0.01, p.z * rad];
+      const q = (p, rad) => [p.x * rad, fy + 0.01, p.z * rad];
       pos.push(...q(p0, inner), ...q(p0, outerR), ...q(p1, outerR), ...q(p0, inner), ...q(p1, outerR), ...q(p1, inner));
     }
     a.band.geometry.dispose();
     a.band.geometry = new BufferGeometry();
     a.band.geometry.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
+    a.band.material.uniforms.r0.value = inner;
+    a.band.material.uniforms.r1.value = outerR;
+    // The shells sit at the measured (slant) distance, one gate thick.
+    const d = this._slant(r), s0 = Math.max(0.05, d - half), s1 = d + half;
+    a.shellMat.uniforms.r0.value = s0;
+    a.shellMat.uniforms.r1.value = s1;
+    a.layers.forEach((m, i) => m.scale.setScalar(s0 + ((i + 0.5) * (s1 - s0)) / a.layers.length));
     a.arc.geometry.dispose();
-    a.arc.geometry = new BufferGeometry().setFromPoints(this._rangeArc(r, 0.014));
-    const ceiling = this.layout.mount === 'ceiling';
-    const ang = ceiling ? Math.PI : -this._extent().half * 0.45;     // off the centre line, clear of the sensor's label
-    a.tag.position.set(Math.sin(ang) * r, 0.5, Math.cos(ang) * r);
+    a.arc.geometry = new BufferGeometry().setFromPoints(this._rangeArc(r, fy + 0.014));
+    // Both on the side away from the sensor's label, stacked when they meet: moving just outside its arc
+    // and higher, still just inside and lower.
+    const ceiling = this.layout.mount === 'ceiling', out = a === this.arcs.moving ? 1 : -1;
+    const ang = ceiling ? Math.PI : -this._extent().half * 0.45, rr = Math.max(0.2, r + 0.25 * out);
+    a.tag.position.set(Math.sin(ang) * rr, fy + (out > 0 ? 0.45 : 0.1), Math.cos(ang) * rr);
     a.built = r;
   }
 
@@ -667,14 +785,18 @@ export class RadarScene {
     const aspect = this.camera.aspect || 1.6;
     const planD = Math.max((e.zSpan / 2 + 0.6) / t, (e.xSpan / 2 + 0.6) / (t * aspect));
 
-    if (name === 'plan') return { pos: e.center.clone().add(V(0, planD, -0.01)), target: e.center.clone(), fov: BASE_FOV };
+    const fy = this._fanY();
+    if (name === 'plan') return { pos: e.center.clone().add(V(0, fy + planD, -0.01)), target: e.center.clone().setY(fy), fov: BASE_FOV };
     if (name === 'sensor') {
       return mount === 'ceiling'
         ? { pos: V(0, h - 0.05, -0.02), target: V(0, 0, 0), fov: 100 }
-        : { pos: V(0, h + 0.05, 0.15), target: V(0, 0.8, e.r * 0.55), fov: 70 };
+        : fy
+          ? { pos: V(0, h + 0.6, -0.3), target: V(0, h - 0.5, e.r * 0.55), fov: 70 }     // just above the fan, or it is edge-on
+          : { pos: V(0, h + 0.05, 0.15), target: V(0, 0.8, e.r * 0.55), fov: 70 };
     }
-    const dir = mount === 'ceiling' ? V(-0.55, 0.68, -0.48) : V(-0.32, 0.62, -0.72);
-    const target = e.center.clone().add(V(0, 0.3, 0));
+    // A fan at the sensor's height is seen from lower down, so the beam's volume above and below it shows.
+    const dir = mount === 'ceiling' ? V(-0.55, 0.68, -0.48) : fy ? V(-0.4, 0.4, -0.8) : V(-0.32, 0.62, -0.72);
+    const target = e.center.clone().add(V(0, fy ? fy * 0.7 : 0.3, 0));
     return { pos: target.clone().add(dir.normalize().multiplyScalar(planD * 1.05)), target, fov: BASE_FOV };
   }
 
@@ -846,6 +968,7 @@ export class RadarScene {
       this.pulse = flat(new RingGeometry(0.985, 1, 96), th.accent, 0, 0.006);
     } else {
       const { half, r, rx } = e;
+      const fy = this._fanY();
       lens.position.z = 0.026;
       housing.position.z = 0.025;
       lens.position.z = 0.051;
@@ -857,20 +980,27 @@ export class RadarScene {
       shape.moveTo(0, 0);
       arcPts(r, half, 0).forEach((p) => shape.lineTo(p.x, p.z));
       shape.lineTo(0, 0);
-      g.add(flat(new ShapeGeometry(shape), th.accent, 0.06, 0.004));
-      g.add(line([V(0, 0.005, 0), ...arcPts(r, half, 0.005), V(0, 0.005, 0)], th.accent, 0.55));
-      for (let k = 1; k < r; k++) g.add(line(arcPts(k, half, 0.005), th.accent, k % 2 ? 0.1 : 0.22));
+      g.add(flat(new ShapeGeometry(shape), th.accent, 0.06, fy + 0.004));
+      g.add(line([V(0, fy + 0.005, 0), ...arcPts(r, half, fy + 0.005), V(0, fy + 0.005, 0)], th.accent, 0.55));
+      for (let k = 1; k < r; k++) g.add(line(arcPts(k, half, fy + 0.005), th.accent, k % 2 ? 0.1 : 0.22));
       for (let k = 2; k <= r; k += 2) {
         const a = -half - 0.07;
-        g.add(label(`${k} m`, 'axis', V(Math.sin(a) * k, 0.02, Math.cos(a) * k)));
+        g.add(label(`${k} m`, 'axis', V(Math.sin(a) * k, fy + 0.02, Math.cos(a) * k)));
       }
       const beam = [];
-      for (const a of [-half, 0, half]) beam.push(sensorEye, V(Math.sin(a) * r, 0, Math.cos(a) * r));
+      for (const a of [-half, 0, half]) beam.push(sensorEye, V(Math.sin(a) * r, fy, Math.cos(a) * r));
       g.add(segments(beam, th.accent, 0.16));
-      this.pulse = flat(new RingGeometry(0.985, 1, 96, 1, Math.PI / 2 - half, 2 * half), th.accent, 0, 0.006);
+      if (fy) {     // the fan floats at the sensor's height: a plumb line shows how high that is
+        const plumb = new Line(new BufferGeometry().setFromPoints([sensorEye, V(0, 0, 0)]),
+          new LineDashedMaterial({ color: th.fg2, dashSize: 0.08, gapSize: 0.08, transparent: true, opacity: 0.5 }));
+        plumb.computeLineDistances();
+        g.add(plumb);
+      }
+      this.pulse = flat(new RingGeometry(0.985, 1, 96, 1, Math.PI / 2 - half, 2 * half), th.accent, 0, fy + 0.006);
     }
     g.add(sensor, this.pulse);
-    g.add(label(`${this.layout.label} · ${this.layout.heightText}`, 'axis', V(0, h + 0.45, 0)));
+    // Above the sensor, or halfway down the plumb line when the fan sits at the sensor's height.
+    g.add(label(`${this.layout.label} · ${this.layout.heightText}`, 'axis', this._fanY() ? V(0, h * 0.5, -0.3) : V(0, h + 0.45, 0)));
     this.sensorEye = sensorEye;
   }
 
@@ -1039,7 +1169,19 @@ export class RadarScene {
     if (this.trailMoving) { animating = true; this.trailMoving = false; }
 
     if (this.arcs) {
-      for (const a of Object.values(this.arcs)) {
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const { moving, still } = this.arcs;
+      const vol = this.view !== 'plan';
+      // Moving and still in the same gate (often one person): the bands take turns, one colour at a time,
+      // instead of blending into a third colour.
+      const overlap = moving.present && still.present && moving.shown !== null && still.shown !== null
+        && Math.abs(moving.shown - still.shown) < this.ranges.resolution;
+      const swapGoal = overlap && !reduced ? 1 : 0;
+      if (Math.abs(this.swap - swapGoal) > 0.002) animating = true;
+      this.swap += (swapGoal - this.swap) * fade;
+      const c = 0.5 + 0.5 * Math.cos((2 * Math.PI * now) / 1000 / SWAP_S);
+      const s = Math.min(1, Math.max(0, (c - 0.25) / 0.5)), turn = s * s * (3 - 2 * s);   // 1: moving's turn
+      for (const [kind, a] of Object.entries(this.arcs)) {
         if (Math.abs(a.presence - (a.present ? 1 : 0)) > 0.002) animating = true;
         a.presence += ((a.present ? 1 : 0) - a.presence) * fade;
         if (a.shown !== null) {
@@ -1048,7 +1190,20 @@ export class RadarScene {
         }
         const on = a.presence > 0.02 && a.shown !== null;
         a.band.visible = a.arc.visible = a.tag.visible = on;
-        a.band.material.opacity = 0.16 * a.presence;
+        const share = kind === 'moving' ? turn : 1 - turn;
+        const opacity = a.presence * (1 - this.swap + this.swap * share);
+        if (on && !reduced) {
+          a.phase = (a.phase + a.dir * RIPPLE_SPEED * dt) % 3;     // 3 m: a whole number of crests for any wave
+          animating = true;
+        }
+        const breath = reduced ? 0.5 : 0.5 + 0.5 * Math.sin((2 * Math.PI * BREATH_HZ * now) / 1000);
+        a.band.material.uniforms.opacity.value = opacity;
+        a.shellMat.uniforms.opacity.value = opacity * SHELL_GAIN;
+        for (const u of [a.band.material.uniforms, a.shellMat.uniforms]) {
+          u.phase.value = a.phase;
+          u.breath.value = breath;
+        }
+        for (const m of a.layers) m.visible = on && vol;
         a.arc.material.opacity = 0.95 * a.presence;
         a.el.style.opacity = a.presence.toFixed(2);
       }
@@ -1069,8 +1224,18 @@ export class RadarScene {
       const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       const r = this._extent().r;
       const s = (now % 2800) / 2800;
+      // Distance-only sensors scan a volume: in 3D the wave is a growing shell instead of a ring on the floor.
+      const vol = this.vol && this.view !== 'plan';
+      this.pulse.visible = !vol;
       this.pulse.scale.set(0.3 + s * (r - 0.3), 0.3 + s * (r - 0.3), 1);
-      this.pulse.material.opacity = reduced ? 0 : 0.24 * (1 - s);
+      this.pulse.material.opacity = reduced ? 0 : 0.14 * (1 - s);     // a hint of the scan, not a feature
+      if (this.vol) {
+        this.vol.group.visible = vol;
+        const p = this.vol.pulse;
+        p.scale.setScalar(0.15 + s * (this.vol.reach - 0.15));
+        p.material.uniforms.opacity.value = reduced ? 0 : 0.32 * Math.min(1, s * 8) * (1 - s);
+        p.visible = !reduced;
+      }
       if (!reduced) animating = true;
     }
 

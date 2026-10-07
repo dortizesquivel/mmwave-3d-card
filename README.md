@@ -11,7 +11,7 @@ It supports three Hi-Link radars:
 
 - **HLK-LD2450**: 24 GHz, X/Y of up to 3 people, through the official ESPHome `ld2450` component.
 - **HLK-LD6004**: 60 GHz, **X/Y/Z** of up to 3 people, through the [`esphome-ld6004`](https://github.com/javierconfoie/esphome-ld6004) external component. With Z the card also shows whether each person is standing, sitting or lying.
-- **HLK-LD2410** (B and C too): 24 GHz, **distance only**, through the official ESPHome `ld2410` component. The card draws each detection as an arc at its distance and charts the energy of each gate against its threshold, which is what you need to tune it.
+- **HLK-LD2410** (B and C too): 24 GHz, **distance only**, through the official ESPHome `ld2410` component. The card draws each detection as a shell of the sensor's beam at its distance and charts the energy of each gate against its threshold, which is what you need to tune it.
 
 ![A tour of the card: live 3D, heatmap, zone editing and replay](docs/demo.gif)
 
@@ -21,7 +21,38 @@ It supports three Hi-Link radars:
 
 > **Status: early.** The LD2450 adapter follows the entity names from the ESPHome docs. The LD6004 adapter follows the external component's source and example YAML, but it has **not been tested with real hardware yet**: the sign of Z and the axes of the ceiling mode may need adjusting. Please open an issue with your readings if something looks off.
 
-**Contents:** [Requirements](#requirements) · [Installation](#installation) · [Features](#features) · [Quick start](#quick-start) · [Using the card](#using-the-card) · [Configuration reference](#configuration-reference) · [Choosing an HLK sensor](#choosing-an-hlk-sensor) · [Development](#development)
+**Contents:** [Sensor gallery](#sensor-gallery) · [Requirements](#requirements) · [Installation](#installation) · [Features](#features) · [Quick start](#quick-start) · [Using the card](#using-the-card) · [Configuration reference](#configuration-reference) · [Choosing an HLK sensor](#choosing-an-hlk-sensor) · [Development](#development)
+
+## Sensor gallery
+
+What the card looks like with each sensor it supports. Click a preview for a still of the whole card, with its table.
+
+<table>
+  <tr>
+    <th>HLK-LD2450 on the wall</th>
+    <th>HLK-LD6004 on the wall</th>
+  </tr>
+  <tr>
+    <td><a href="docs/sensors/ld2450.png"><img src="docs/sensors/ld2450.gif" alt="An LD2450 on the wall: three people with their positions and trails, and three zones" width="100%"></a></td>
+    <td><a href="docs/sensors/ld6004-wall.png"><img src="docs/sensors/ld6004-wall.gif" alt="An LD6004 on the wall, in a drawn room: people standing, sitting and lying, detection and interference zones" width="100%"></a></td>
+  </tr>
+  <tr>
+    <td>X/Y of up to 3 people, their speed, and the sensor's zones.</td>
+    <td>X/Y/Z: height and posture, interference and dwell zones.</td>
+  </tr>
+  <tr>
+    <th>HLK-LD6004 on the ceiling</th>
+    <th>HLK-LD2410 on the wall</th>
+  </tr>
+  <tr>
+    <td><a href="docs/sensors/ld6004-ceiling.png"><img src="docs/sensors/ld6004-ceiling.gif" alt="An LD6004 on the ceiling: a round coverage on the floor below it, people and zones" width="100%"></a></td>
+    <td><a href="docs/sensors/ld2410.png"><img src="docs/sensors/ld2410.gif" alt="An LD2410: the moving and still detections as shells of the beam at their distance" width="100%"></a></td>
+  </tr>
+  <tr>
+    <td>The same sensor looking down: a round coverage under it.</td>
+    <td>Distance only: shells of the beam, gates, and the energy per gate.</td>
+  </tr>
+</table>
 
 ## Requirements
 
@@ -291,7 +322,7 @@ The card is waiting for review to join HACS's default list. Until it's accepted,
 - **Replay** the last 1, 6 or 24 hours from the recorder. [More](#replay)
 - **Heatmap** of where each person spent their time, in their colour. [More](#heatmap)
 - **Zones from the sensor**, drawn as boxes: detection zones light up when someone is inside; zones the radar ignores (LD6004 interference, LD2450 *Filter*) are hatched; dwell zones have dashed edges.
-- **Distance-only sensors (LD2410)**: detections as arcs, gate limits, and the energy of each gate against its threshold. [More](#distance-only-sensors-ld2410)
+- **Distance-only sensors (LD2410)**: each detection as a shell of the beam in 3D, rippling while the target moves and breathing while it's still; gate limits; and the energy of each gate against its threshold. [More](#distance-only-sensors-ld2410)
 - **Wall or ceiling mounting**; the LD6004 can read it from its *Install Method* select.
 - **Follows the Home Assistant theme** (light, dark and custom themes); the UI is in English or Spanish, following HA's language.
 - **Light on resources**: it stops drawing while off screen and releases its WebGL context when you leave the view. With reduced motion turned on in your system (no radar pulse), it also stops drawing when nothing moves.
@@ -360,15 +391,27 @@ With the LD6004 the figure follows the person's height: **standing**, **sitting*
 
 ### Distance-only sensors (LD2410)
 
-![An LD2410: a moving detection as an arc, the gate limits, and the energy of each gate against its threshold](docs/images/ld2410.png)
+![An LD2410 tour: a still target breathing, a moving one rippling away, both in one gate taking turns, the plan view and someone walking back towards the sensor](docs/gifs/ld2410.gif)
 
-*An LD2410 in a hallway: the moving detection as a blue arc at 1.8 m, the 4.5 m limits, and the energy of each gate.*
+*An LD2410 in a hallway: someone still at 2 m, someone else walking away and back, the plan view, and the energy of each gate.*
 
-The LD2410 only measures distance, so the card doesn't pretend to know where you are: each detection is an **arc** across the field of view at its distance, blue for the moving target and orange for the still one, with a soft band one gate wide around it (0.75 m or 0.2 m, depending on the sensor's resolution). The dashed arcs are how far the sensor is set to look for movement and for still targets (its *max distance gates*), and **G0 … G8** mark the gates.
+The LD2410 only measures distance, so the card doesn't pretend to know where you are. Its beam is a cone of about ±60° (from Hi-Link's manual), so everything at a given distance lies on a **shell**, part of a sphere around the sensor, cut by the floor and the ceiling. That is how the 3D view draws each detection: a shell one gate thick (0.75 m or 0.2 m, depending on the sensor's resolution), blue for the moving target and orange for the still one, with a faint dome showing how far the sensor reaches.
+
+The fan with the gates sits **at the sensor's height**, in the middle of the beam, where the radius is the measured distance as it is; a dashed line drops from the sensor to the floor. On it, each detection is a band and a bright arc, **G0 … G8** mark the gates, and the dashed arc is how far the sensor is set to look for movement and for still targets (its *max distance gates*). The plan view shows just this fan, from above.
+
+The detections tell moving from still at a glance:
+
+- **Moving**: crests run through the band and the shell the way the target is going, away from the sensor or towards it.
+- **Still**: the band breathes, slowly fading in and out.
+- **Both in the same gate**, which is common with a single person: the two **take turns**, blue and orange, instead of blending into a third colour.
+
+A faint wave leaves the sensor every few seconds, as a shell in 3D and a ring in the plan view. With reduced motion turned on in your system, nothing moves: the moving band keeps its crests still and the still one stays solid.
+
+![An LD2410: the moving and still detections as shells of the beam, the gate limits, and the energy of each gate against its threshold](docs/images/ld2410.png)
 
 Under the table, **Energy per gate** shows, for each gate, the moving and still energy as bars and the threshold as a line across them. A bar above its line is what makes the sensor detect; gates beyond the limits are dimmed, and the gate with the current detection is in bold. The energies only arrive while the sensor's **Engineering mode** is on: if it's off, the chart shows the thresholds and, for admins, a button to switch it on (it makes the sensor send much more data, so switch it off when you're done tuning).
 
-Replay works the same way, and the heatmap becomes rings: how long each distance was occupied, blue where most of it was movement and orange where it was someone still. There are no zones to edit on this sensor.
+Replay works the same way, and the heatmap becomes rings: how long each distance was occupied, blue where most of it was movement and orange where it was someone still. There are no zones or trails on this sensor, so their buttons are hidden.
 
 ### Visual editor
 

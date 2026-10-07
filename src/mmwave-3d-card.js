@@ -246,11 +246,12 @@ class MmwaveRadar3dCard extends HTMLElement {
             <div class="seg" role="group" aria-label="View">
               ${VIEWS.map((v) => `<button type="button" data-view="${v}" aria-pressed="${v === this._ui.view}">${esc(viewLabel[v])}</button>`).join('')}
             </div>
+            ${a.oneD ? '' : `
             <div class="seg" role="group" aria-label="Layers">
               <button type="button" data-toggle="trail" aria-pressed="${this._ui.trail}">${esc(t.trail)}</button>
               <button type="button" data-toggle="zones" aria-pressed="${this._ui.zones}">${esc(t.zones)}</button>
               <button type="button" data-act="edit" aria-pressed="false" hidden>${esc(t.editZones)}</button>
-            </div>
+            </div>`}
           </div>
         </div>
         <div class="panel" hidden></div>
@@ -289,7 +290,7 @@ class MmwaveRadar3dCard extends HTMLElement {
       if (key === 'trail') this._scene?.setTrail(c.trail_seconds, this._ui.trail);
       if (key === 'zones') this._update(true);
     }));
-    this._el.edit.addEventListener('click', () => (this._editing ? this._exitEdit() : this._enterEdit()));
+    this._el.edit?.addEventListener('click', () => (this._editing ? this._exitEdit() : this._enterEdit()));
     this._el.zones?.addEventListener('click', (e) => {
       const id = e.target.closest('[data-entity]')?.dataset.entity;
       if (id) this._moreInfo(id);
@@ -411,7 +412,7 @@ class MmwaveRadar3dCard extends HTMLElement {
     this._shownZones = zones;
     const firstX = this._entities.targets[0]?.x;
     this._setStatus(firstX && !hass.states[firstX] ? this._t.missing(firstX) : null);
-    this._el.edit.hidden = !(c.allow_zone_editing && hass.user?.is_admin && this._mode === 'live' && this._adapter.zoneEditing);
+    if (this._el.edit) this._el.edit.hidden = !(c.allow_zone_editing && hass.user?.is_admin && this._mode === 'live' && this._adapter.zoneEditing);
 
     const scene = this._scene;
     if (scene) {
@@ -431,6 +432,7 @@ class MmwaveRadar3dCard extends HTMLElement {
         heightText: `${this._fmt.m1.format(c.mount_height)} m`,
         locale: this._lang,
         zoneStep: this._adapter.zoneStep,
+        slice: !!this._adapter.oneD,
       });
       scene.setRoom(c.room);
       scene.setZones(zones, {
@@ -461,6 +463,7 @@ class MmwaveRadar3dCard extends HTMLElement {
       gate: (i) => `G${i}`,
       moveLimit: r.moveLimit === null ? '' : `${t.moveLimit} ${m(r.moveLimit)}`,
       stillLimit: r.stillLimit === null ? '' : `${t.stillLimit} ${m(r.stillLimit)}`,
+      bothLimits: r.moveLimit === null ? '' : `${t.limit} ${m(r.moveLimit)}`,     // when the two are the same
     };
   }
 
@@ -727,7 +730,7 @@ class MmwaveRadar3dCard extends HTMLElement {
     this._editing = true;
     this._selectedZone = null;
     this._panelMsg = this._editInfo.supported ? null : { text: t.editUnsupported[this._editInfo.reason], error: true };
-    this._el.edit.setAttribute('aria-pressed', 'true');
+    this._el.edit?.setAttribute('aria-pressed', 'true');
     this._viewBeforeEdit = this._ui.view;
     this._setView('plan');
     this._scene?.setEditMode(this._editInfo.supported);
@@ -739,7 +742,7 @@ class MmwaveRadar3dCard extends HTMLElement {
     this._editing = false;
     this._adding = null;
     clearTimeout(this._confirmTimer);
-    this._el.edit.setAttribute('aria-pressed', 'false');
+    this._el.edit?.setAttribute('aria-pressed', 'false');
     this._scene?.setEditMode(false);
     this._setView(this._viewBeforeEdit ?? this._ui.view);
     this._panelMsg = null;
@@ -915,7 +918,7 @@ if (!customElements.get('mmwave-3d-card')) {
   window.customCards.push({
     type: 'mmwave-3d-card',
     name: 'mmWave 3D Card',
-    description: '3D view of HLK-LD2450 / HLK-LD6004 mmWave radar targets and zones',
+    description: '3D view of HLK-LD2450 / HLK-LD6004 / HLK-LD2410 mmWave radars: targets, zones and distance gates',
     preview: false,
     documentationURL: 'https://github.com/dortizesquivel/mmwave-3d-card',
   });

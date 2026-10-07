@@ -1,7 +1,7 @@
 {
   "name": "mmwave-3d-card",
   "version": "0.4.0",
-  "description": "3D Lovelace card (three.js) for HLK-LD2450 and HLK-LD6004 mmWave presence radars",
+  "description": "3D Lovelace card (three.js) for HLK-LD2450, HLK-LD6004 and HLK-LD2410 mmWave presence radars",
   "type": "module",
   "private": true,
   "license": "MIT",
@@ -16,6 +16,7 @@
     "mmwave",
     "ld2450",
     "ld6004",
+    "ld2410",
     "threejs"
   ],
   "scripts": {

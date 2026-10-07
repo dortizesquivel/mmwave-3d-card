@@ -28,7 +28,7 @@ const STRINGS = {
     lastHours: (h) => `${h} h`, play: 'Reproducir', pause: 'Pausa',
     // 1D sensors
     moving: 'Movimiento', still: 'Quieto', detection: 'Detección', energy: 'Energía', gate: 'Puerta', presenceOn: 'Presencia',
-    moveLimit: 'Límite de movimiento', stillLimit: 'Límite en quieto', threshold: 'umbral', gatesTitle: 'Energía por puerta',
+    moveLimit: 'Límite de movimiento', stillLimit: 'Límite en quieto', limit: 'Límite', threshold: 'umbral', gatesTitle: 'Energía por puerta',
     engineeringOff: 'Activa el modo ingeniería del sensor para ver la energía de cada puerta.',
     engineeringIsOn: 'Modo ingeniería activo: el sensor envía muchos más datos.',
     engineeringStart: 'Activar modo ingeniería', engineeringStop: 'Desactivar modo ingeniería',
@@ -63,7 +63,7 @@ const STRINGS = {
     },
     lastHours: (h) => `${h} h`, play: 'Play', pause: 'Pause',
     moving: 'Moving', still: 'Still', detection: 'Detection', energy: 'Energy', gate: 'Gate', presenceOn: 'Presence',
-    moveLimit: 'Move limit', stillLimit: 'Still limit', threshold: 'threshold', gatesTitle: 'Energy per gate',
+    moveLimit: 'Move limit', stillLimit: 'Still limit', limit: 'Limit', threshold: 'threshold', gatesTitle: 'Energy per gate',
     engineeringOff: "Turn on the sensor's engineering mode to see each gate's energy.",
     engineeringIsOn: 'Engineering mode is on: the sensor sends a lot more data.',
     engineeringStart: 'Turn on engineering mode', engineeringStop: 'Turn off engineering mode',

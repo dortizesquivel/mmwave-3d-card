@@ -295,6 +295,53 @@ test('the LD2410 heatmap and replay work by distance', async ({ page }) => {
   await expect.poll(() => c.locator('tbody').textContent()).not.toBe(before);
 });
 
+test('the LD2410 draws its beam in 3D: shells at the measured distance, the fan at the sensor height', async ({ page }) => {
+  await openDemo(page, 'cards=ld2410&t=45&frozen=1');
+  const c = card(page);
+  await expect(c.locator('[data-toggle]')).toHaveCount(0);                 // no trails or zones on this sensor
+  const d = Number((await c.locator('tbody tr').first().locator('td').nth(1).textContent()).match(/\d+\.\d+/)[0]);
+  const info = () => c.evaluate((el) => {
+    const s = el._scene, a = s.arcs.moving, u = a.shellMat.uniforms;
+    return { fanY: s._fanY(), vol: s.vol.group.visible, layers: a.layers.filter((m) => m.visible).length, r0: u.r0.value, r1: u.r1.value };
+  });
+  await expect.poll(async () => { const i = await info(); return i.layers === 6 && i.r0 < d && i.r1 > d; }).toBe(true);
+  const i = await info();
+  expect(i.fanY).toBe(1.5);                                                // mount_height: the fan is the slice through the sensor
+  expect(i.vol).toBe(true);
+  expect(i.r1 - i.r0).toBeCloseTo(0.75, 2);                                // one gate thick
+  await c.locator('[data-view="plan"]').click();
+  await expect.poll(async () => (await info()).vol).toBe(false);           // the plan view shows only the fan
+});
+
+test.describe('with motion', () => {
+  test.use({ reducedMotion: 'no-preference' });
+
+  test('LD2410: moving and still in one gate take turns, and the ripples follow the target', async ({ page }) => {
+    await openDemo(page, 'cards=ld2410&t=15&frozen=1');                    // someone walking away, seen as moving and still at 3.8 m
+    const c = card(page);
+    const state = () => c.evaluate((el) => {
+      const s = el._scene;
+      return { swap: s.swap, dir: s.arcs.moving.dir, m: s.arcs.moving.band.material.uniforms.opacity.value, st: s.arcs.still.band.material.uniforms.opacity.value };
+    });
+    await expect.poll(async () => (await state()).swap).toBeGreaterThan(0.9);
+    const lead = { m: 0, st: 0 };
+    for (let k = 0; k < 16; k++) {                                         // over a whole turn (2.4 s) each colour gets its moment
+      const s = await state();
+      lead.m = Math.max(lead.m, s.m - s.st);
+      lead.st = Math.max(lead.st, s.st - s.m);
+      await page.waitForTimeout(200);
+    }
+    expect(lead.m).toBeGreaterThan(0.5);
+    expect(lead.st).toBeGreaterThan(0.5);
+
+    const step = (s) => page.evaluate((sec) => { window.demo.sim.advance(sec); window.demo.push(); }, s);
+    await step(5);                                                          // t = 20: walking back from 4.1 m
+    await page.waitForTimeout(400);
+    await step(1);                                                          // 3.1 m
+    await expect.poll(async () => (await state()).dir).toBe(-1);          // towards the sensor
+  });
+});
+
 test('the visual editor changes the card', async ({ page }) => {
   await openDemo(page, 'cards=ld2450');
   await page.locator('#editor-box > summary').click();
