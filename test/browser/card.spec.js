@@ -284,6 +284,28 @@ test('replay skips the quiet stretches and marks when someone was there', async 
   expect(await playFrom(end1 + 1000)).toBeLessThan(end1 + 5000);
 });
 
+test('replay finds the quiet stretches of the sensors with positions too', async ({ page }) => {
+  await openDemo(page, 'cards=ld2450,ld6004');
+  for (const [i, absent] of [[0, '0'], [1, 'nan']]) {                     // LD2450: 0,0 is nobody; LD6004: NaN
+    const c = card(page, i);
+    await c.locator('[data-mode="replay"]').click();
+    await expect(c.locator('.panel input[type="range"]')).toBeVisible();
+    const minutes = await c.evaluate((el, gone) => {
+      // In the demo someone is always there: empty the room for 10 minutes in the middle of the hour.
+      const h = el._history, mid = h.start + (h.end - h.start) / 2;
+      for (const id of el._entities.targets.flatMap((t) => [t.x, t.y])) {
+        const s = h.data.get(id);
+        const rows = s.t.map((t, k) => [t, s.s[k]]).filter(([t]) => t < mid || t > mid + 600000);
+        rows.push([mid, gone]);
+        rows.sort((a, b) => a[0] - b[0]);
+        h.data.set(id, { t: rows.map((r) => r[0]), s: rows.map((r) => r[1]) });
+      }
+      return el._computeActivity().map(([a, b]) => Math.round((b - a) / 60000));
+    }, absent);
+    expect(minutes).toEqual([30, 20]);                                     // busy, 10 quiet minutes, busy again
+  }
+});
+
 test('the LD2410 card shows its detection, the energy per gate and engineering mode', async ({ page }) => {
   await openDemo(page, 'cards=ld2410&t=45');
   const c = card(page);
