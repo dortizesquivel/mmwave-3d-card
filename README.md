@@ -31,7 +31,7 @@ It supports two Hi-Link radars:
 - **Edit, draw and delete zones** on the floor, saved straight to the sensor; on the LD6004 that includes interference and dwell zones. [More](#editing-zones)
 - **Tap a person or a zone** to open its more-info dialog. [More](#opening-an-entitys-details)
 - **Replay** the last 1, 6 or 24 hours from the recorder. [More](#replay)
-- **Heatmap** of where people spent their time. [More](#heatmap)
+- **Heatmap** of where each person spent their time, in their colour. [More](#heatmap)
 - **Zones from the sensor**, drawn as boxes: detection zones light up when someone is inside; zones the radar ignores (LD6004 interference, LD2450 *Filter*) are hatched; dwell zones have dashed edges.
 - **Wall or ceiling mounting**; the LD6004 can read it from its *Install Method* select.
 - **Follows the Home Assistant theme** (light, dark and custom themes); the UI is in English or Spanish, following HA's language.
@@ -186,11 +186,15 @@ The people, the table and the zone chips show the chosen moment; zones themselve
 
 ### Heatmap
 
-![Time spent at each spot over the last hour, dark and light themes](docs/images/heatmap.png)
+![Time spent at each spot over the last hour, coloured by person, dark and light themes](docs/images/heatmap.png)
 
-*Time spent at each spot over the last hour, in the dark and light themes.*
+*Time spent at each spot over the last hour, coloured by person, in the dark and light themes.*
 
-Select **Heatmap** and a period. The card adds up how long someone was detected on each 20 cm patch of floor and paints it in blue: the longer, the darker on a light card and the brighter on a dark one. The legend gives the longest time spent in one spot and the total time with someone present. Live people keep moving on top. The plan view reads best.
+Select **Heatmap** and a period. The card adds up how long each person was detected on each 20 cm patch of floor. Each patch takes the colour of whoever spent the most time there, the same colour as their figure, and the more time, the more solid it looks.
+
+The chips under the view give each person's total time; tap one to hide or show that person, for example to see only where T2 has been. Next to them, the longest time spent in a single spot. Live people keep moving on top. The plan view reads best.
+
+T1, T2 and T3 are the radar's tracking slots, not identities: when people come and go, the radar can hand a slot to someone else, so over an hour "T1" may be more than one person.
 
 ## Configuration reference
 
