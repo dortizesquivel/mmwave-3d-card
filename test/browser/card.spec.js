@@ -257,6 +257,33 @@ test('replay keeps the table and its controls still while playing', async ({ pag
   expect(times.size).toBeGreaterThan(3);              // it really was playing
 });
 
+test('replay skips the quiet stretches and marks when someone was there', async ({ page }) => {
+  await openDemo(page, 'cards=ld2410');                                     // the demo hallway: 45 s busy every 6 min
+  const c = card(page);
+  await c.locator('[data-mode="replay"]').click();
+  await expect(c.locator('.panel input[type="range"]')).toBeVisible();
+  const activity = await c.evaluate((el) => el._activity);
+  expect(activity.length).toBeGreaterThan(5);
+  await expect(c.locator('.activity i')).toHaveCount(activity.length);      // one mark per detection on the strip
+  await expect(c.locator('[data-speed]')).toHaveText(['×1', '×10', '×60', '×600']);
+  await expect(c.locator('[data-act="skip"]')).toHaveAttribute('aria-pressed', 'true');
+
+  // From just after a detection, at ×1: with skipping, it lands 1 s before the next one at once.
+  const [, end1] = activity[0], [start2] = activity[1];
+  const playFrom = async (t) => {
+    await c.evaluate((el, at) => { el._replay.t = at; }, t);
+    await c.locator('[data-speed="1"]').click();
+    await c.locator('[data-act="play"]').click();
+    await page.waitForTimeout(600);
+    await c.locator('[data-act="play"]').click();                           // pause
+    return c.evaluate((el) => el._replay.t);
+  };
+  expect(await playFrom(end1 + 1000)).toBeGreaterThanOrEqual(start2 - 1000);
+  await c.locator('[data-act="skip"]').click();                             // off: it plays the quiet time as it was
+  await expect(c.locator('[data-act="skip"]')).toHaveAttribute('aria-pressed', 'false');
+  expect(await playFrom(end1 + 1000)).toBeLessThan(end1 + 5000);
+});
+
 test('the LD2410 card shows its detection, the energy per gate and engineering mode', async ({ page }) => {
   await openDemo(page, 'cards=ld2410&t=45');
   const c = card(page);

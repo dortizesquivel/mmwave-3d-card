@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchHistory, indexAt, parseHistory, historySpan, statesAt } from '../src/history.js';
+import { activityIntervals, fetchHistory, indexAt, parseHistory, historySpan, skipQuiet, statesAt } from '../src/history.js';
 import { blur, buildHeatmap, buildRingHeatmap, combine } from '../src/heatmap.js';
 
 test('parseHistory reads compressed and full states, sorted by time', () => {
@@ -98,4 +98,27 @@ test('buildRingHeatmap adds up time per distance bin, moving and still apart', (
   const both = combine(map, [true, true]);
   assert.deepEqual([...both.owner].slice(0, 3), [0, 0, 1]);    // bin 1 is movement's, bin 2 the still target's
   assert.equal(combine(map, [false, true]).total, 5);
+});
+
+test('activityIntervals finds when something was detected, asking only at the changes', () => {
+  const history = new Map([
+    ['binary_sensor.on', { t: [1000, 4000, 9000], s: ['on', 'off', 'on'] }],
+    ['sensor.noise', { t: [2000, 3000], s: ['1', '2'] }],
+  ]);
+  const asked = [];
+  const isActive = (t) => { asked.push(t); return statesAt(history, t, {})['binary_sensor.on'].state === 'on'; };
+  assert.deepEqual(activityIntervals(history, 0, 12000, isActive), [[1000, 4000], [9000, 12000]]);
+  assert.deepEqual(asked, [0, 1000, 2000, 3000, 4000, 9000]);
+  assert.deepEqual(activityIntervals(history, 2500, 8000, isActive), [[2500, 4000]]);   // already on at the start
+  assert.deepEqual(activityIntervals(new Map(), 0, 10, () => false), []);
+});
+
+test('skipQuiet jumps over quiet stretches to just before the next detection', () => {
+  const iv = [[10000, 20000], [60000, 70000]];
+  assert.equal(skipQuiet(iv, 0), 9000);                 // long quiet: jump, 1 s ahead of it
+  assert.equal(skipQuiet(iv, 12000), 12000);            // inside a detection: carry on
+  assert.equal(skipQuiet(iv, 57000), 57000);            // the next one is under 5 s away: no jump
+  assert.equal(skipQuiet(iv, 25000), 59000);
+  assert.equal(skipQuiet(iv, 75000), null);             // nothing left
+  assert.equal(skipQuiet(iv, 0, { lead: 0, minGap: 1000 }), 10000);
 });

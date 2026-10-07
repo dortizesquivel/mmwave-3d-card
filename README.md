@@ -490,8 +490,10 @@ Tap a person to open the more-info dialog of their X entity, with its history. T
 
 1. Select **Replay**, at the top right.
 2. Choose how far back to go: **1 h**, **6 h** or **24 h**.
-3. Select **Play** and pick the speed: **×1**, **×10** or **×60**. Drag the slider to jump to any moment; the time shows next to it.
+3. Select **Play** and pick the speed: **×1**, **×10**, **×60** or **×600**. Drag the slider to jump to any moment; the time shows next to it.
 4. Select **Live** to go back to the current readings.
+
+Most of a day nobody is in front of the sensor: a real hallway LD2410 saw someone 54 minutes out of 24 hours, in 159 short visits. So **Skip quiet time** is on by default: when nobody is detected, playback jumps to a second before the next detection, and 24 hours of that hallway play in under a minute at ×60. The strip under the slider marks every stretch with someone detected, so you can see when things happened and drag straight there. Turn skipping off to watch the quiet time as it was (×600 runs through a whole day in 2.4 minutes).
 
 The people, the table and the zone chips show the chosen moment; zones themselves are drawn as they are now. The card reads the target entities with HA's `history/history_during_period`. An LD2450 publishing once a second stores about 86,000 states per entity a day, so 24 hours takes a few seconds to load.
 

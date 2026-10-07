@@ -26,6 +26,7 @@ const STRINGS = {
     },
     // History
     lastHours: (h) => `${h} h`, play: 'Reproducir', pause: 'Pausa',
+    skipQuiet: 'Saltar vacíos', skipQuietHint: 'Salta los ratos en los que no se detecta a nadie', activity: 'Cuándo se detectó a alguien',
     // 1D sensors
     moving: 'Movimiento', still: 'Quieto', detection: 'Detección', energy: 'Energía', gate: 'Puerta', presenceOn: 'Presencia',
     moveLimit: 'Límite de movimiento', stillLimit: 'Límite en quieto', limit: 'Límite', threshold: 'umbral', gatesTitle: 'Energía por puerta',
@@ -62,6 +63,7 @@ const STRINGS = {
       serviceAmbiguous: 'There are several set_detection_zone services. Set the one for this sensor with "zone_service".',
     },
     lastHours: (h) => `${h} h`, play: 'Play', pause: 'Pause',
+    skipQuiet: 'Skip quiet time', skipQuietHint: 'Skips the stretches where nobody is detected', activity: 'When someone was detected',
     moving: 'Moving', still: 'Still', detection: 'Detection', energy: 'Energy', gate: 'Gate', presenceOn: 'Presence',
     moveLimit: 'Move limit', stillLimit: 'Still limit', limit: 'Limit', threshold: 'threshold', gatesTitle: 'Energy per gate',
     engineeringOff: "Turn on the sensor's engineering mode to see each gate's energy.",
