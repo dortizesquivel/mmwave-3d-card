@@ -8,6 +8,7 @@ test('fills device defaults', () => {
   assert.equal(c.max_range, 6);
   assert.equal(c.fov, 120);
   assert.equal(c.mount_height, 1.5);
+  assert.equal(c.tilt, 0);
   assert.equal(c.view, '3d');
   assert.equal(c.z_offset, null);
   assert.deepEqual(c.posture, { sitting: 0.95, lying: 0.45 });
@@ -22,6 +23,9 @@ test('rejects configs HA should flag', () => {
   assert.throws(() => normalizeConfig({ device: 'ld2450' }), /prefix/);
   assert.throws(() => normalizeConfig({ device: 'ld2450', prefix: 'x', view: 'top' }), /view/);
   assert.throws(() => normalizeConfig({ device: 'ld2450', prefix: 'x', mount_height: 'high' }), /mount_height/);
+  assert.throws(() => normalizeConfig({ device: 'ld2410', prefix: 'x', tilt: 95 }), /tilt/);
+  assert.throws(() => normalizeConfig({ device: 'ld2410', prefix: 'x', tilt: -5 }), /tilt/);
+  assert.equal(normalizeConfig({ device: 'ld2410', prefix: 'x', tilt: '20' }).tilt, 20);
   assert.throws(() => normalizeConfig({ device: 'ld6004', prefix: 'x', posture: { sitting: 0.4, lying: 0.6 } }), /posture/);
 });
 

@@ -210,6 +210,24 @@ const ASSETS = {
     });
   },
 
+  // The same LD2410 2.4 m up a wall, level and tilted 20° down.
+  async tilt() {
+    const files = [];
+    for (const tilt of [0, 20]) {
+      const { ctx, page, card } = await open({ query: 't=7&frozen=1&cards=ld2410', width: 760 });
+      await page.evaluate((t) => window.demo.cards[0].setConfig({
+        type: 'custom:mmwave-3d-card', device: 'ld2410', prefix: 'esp32_pasillo', title: 'Hallway · HLK-LD2410', mount_height: 2.4, tilt: t,
+      }), tilt);
+      await page.evaluate(() => window.demo.push());
+      await wait(1500);
+      const f = join(tmp, `tilt-${tilt}.png`);
+      await viewport(card).screenshot({ path: f });
+      files.push(f);
+      await ctx.close();
+    }
+    compose(files, 'docs/images/tilt.png', { width: 1600 });
+  },
+
   // A preview per sensor for the gallery: the whole card, and a few seconds of its 3D view.
   async sensors() {
     mkdirSync('docs/sensors', { recursive: true });

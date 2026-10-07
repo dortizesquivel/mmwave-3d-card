@@ -323,7 +323,7 @@ The card is waiting for review to join HACS's default list. Until it's accepted,
 - **Heatmap** of where each person spent their time, in their colour. [More](#heatmap)
 - **Zones from the sensor**, drawn as boxes: detection zones light up when someone is inside; zones the radar ignores (LD6004 interference, LD2450 *Filter*) are hatched; dwell zones have dashed edges.
 - **Distance-only sensors (LD2410)**: each detection as a shell of the beam in 3D, rippling while the target moves and breathing while it's still; gate limits; and the energy of each gate against its threshold. [More](#distance-only-sensors-ld2410)
-- **Wall or ceiling mounting**; the LD6004 can read it from its *Install Method* select.
+- **Wall or ceiling mounting**, and a **tilt** for wall sensors that point down; the LD6004 can read the mounting from its *Install Method* select.
 - **Follows the Home Assistant theme** (light, dark and custom themes); the UI is in English or Spanish, following HA's language.
 - **Light on resources**: it stops drawing while off screen and releases its WebGL context when you leave the view. With reduced motion turned on in your system (no radar pulse), it also stops drawing when nothing moves.
 
@@ -412,6 +412,16 @@ A faint wave leaves the sensor every few seconds, as a shell in 3D and a ring in
 Under the table, **Energy per gate** shows, for each gate, the moving and still energy as bars and the threshold as a line across them. A bar above its line is what makes the sensor detect; gates beyond the limits are dimmed, and the gate with the current detection is in bold. The energies only arrive while the sensor's **Engineering mode** is on: if it's off, the chart shows the thresholds and, for admins, a button to switch it on (it makes the sensor send much more data, so switch it off when you're done tuning).
 
 Replay works the same way, and the heatmap becomes rings: how long each distance was occupied, blue where most of it was movement and orange where it was someone still. There are no zones or trails on this sensor, so their buttons are hidden.
+
+#### Tilted sensors
+
+![The same LD2410 2.4 m up a wall, level and tilted 20° down: tilted, the fan with the gates and the detections slopes down with the beam](docs/images/tilt.png)
+
+*An LD2410 2.4 m up, near the ceiling: level (left) and tilted 20° down (right, `mount_height: 2.4`, `tilt: 20`).*
+
+High on a wall the sensor usually points down. Set `tilt` to the angle of its axis below the horizontal and the card turns the whole beam with it: the cone and its shells, the faint dome, the scan wave, and the fan with the gates, which stays the beam's middle plane, sloping towards the floor. A detection stays at its measured distance from the sensor. The 3D camera turns with the fan, so it still looks at it from above, and the sensor's label shows the tilt.
+
+On the LD2450 the tilt only turns the drawing of the sensor: it measures range and horizontal angle, and tilting it down doesn't change either, so its X/Y stay as they are. The LD6004's points aren't turned yet; that will come once it can be checked against the real sensor.
 
 ### Visual editor
 
@@ -508,6 +518,7 @@ T1, T2 and T3 are the radar's tracking slots, not identities: when people come a
 | `title` | string | sensor model | Card title |
 | `mount` | string | `wall` (LD2450), `auto` (LD6004) | `wall`, `ceiling` or `auto`. `auto` reads the LD6004 *Install Method* select (`Side`/`Top`) and falls back to `wall`. |
 | `mount_height` | number | `1.5` | Sensor height above the floor, in metres |
+| `tilt` | number | `0` | Wall sensors: how far the sensor points down, in degrees below the horizontal (0 = level, 90 = straight down). Turns the drawing of the sensor and, on the LD2410, its whole beam. [More](#tilted-sensors) |
 | `max_range` | number | `6` | Maximum range drawn, in metres |
 | `fov` | number | `120` | Opening angle, in degrees |
 | `invert_x` | boolean | `false` | Mirrors the scene left to right, if people show up on the wrong side |

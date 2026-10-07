@@ -313,6 +313,34 @@ test('the LD2410 draws its beam in 3D: shells at the measured distance, the fan 
   await expect.poll(async () => (await info()).vol).toBe(false);           // the plan view shows only the fan
 });
 
+test('a tilted LD2410 turns its beam and fan down and keeps each detection at its measured distance', async ({ page }) => {
+  await openDemo(page, 'cards=ld2410&t=45&frozen=1');
+  const c = card(page);
+  await c.evaluate((el) => el.setConfig({ type: 'custom:mmwave-3d-card', device: 'ld2410', prefix: 'esp32_pasillo', mount_height: 2.4, tilt: 20 }));
+  await page.evaluate(() => window.demo.push());
+  const d = Number((await c.locator('tbody tr').first().locator('td').nth(1).textContent()).match(/\d+\.\d+/)[0]);
+  const geo = () => c.evaluate((el) => {
+    const s = el._scene, a = s.arcs.moving, V3 = s.camera.position.constructor;
+    s.scene.updateMatrixWorld(true);
+    const pos = a.arc.geometry.attributes.position, p = new V3(), sensor = new V3(0, s.layout.h, 0);
+    const dists = [], ys = [];
+    for (let i = 0; i < pos.count; i += 8) {
+      p.fromBufferAttribute(pos, i).applyMatrix4(a.arc.matrixWorld);
+      dists.push(p.distanceTo(sensor));
+      ys.push(p.y);
+    }
+    const ax = a.shellMat.uniforms.axis.value;
+    return { dists, maxY: Math.max(...ys), axis: [ax.x, ax.y, ax.z], label: el.shadowRoot.textContent.includes('2.4 m · 20°') };
+  });
+  await expect.poll(async () => (await geo()).dists.every((x) => Math.abs(x - d) < 0.05)).toBe(true);   // on the sphere of radius d
+  const g = await geo();
+  const t = (20 * Math.PI) / 180;
+  expect(g.axis[1]).toBeCloseTo(-Math.sin(t), 3);                           // the beam points 20° down
+  expect(g.axis[2]).toBeCloseTo(Math.cos(t), 3);
+  expect(g.maxY).toBeLessThan(2.4);                                         // the whole arc lies below the sensor
+  expect(g.label).toBe(true);                                               // "HLK-LD2410 · 2.4 m · 20°"
+});
+
 test.describe('with motion', () => {
   test.use({ reducedMotion: 'no-preference' });
 

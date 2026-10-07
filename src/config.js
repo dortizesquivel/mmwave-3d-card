@@ -60,6 +60,7 @@ export function normalizeConfig(c) {
     title: c.title ?? '',
     mount,
     mount_height: num(c.mount_height, 1.5, 'mount_height'),
+    tilt: num(c.tilt, 0, 'tilt'),
     max_range: num(c.max_range, adapter.defaults.maxRange, 'max_range'),
     fov: num(c.fov, adapter.defaults.fov, 'fov'),
     invert_x: c.invert_x === true,
@@ -87,6 +88,7 @@ export function normalizeConfig(c) {
   if (cfg.mount_height <= 0) throw new Error('"mount_height" must be greater than 0');
   if (cfg.max_range <= 0) throw new Error('"max_range" must be greater than 0');
   if (cfg.fov <= 0 || cfg.fov > 180) throw new Error('"fov" must be between 1 and 180 degrees');
+  if (cfg.tilt < 0 || cfg.tilt > 90) throw new Error('"tilt" must be between 0 and 90 degrees');
   if (cfg.posture.lying >= cfg.posture.sitting) throw new Error('"posture.lying" must be lower than "posture.sitting"');
   return cfg;
 }

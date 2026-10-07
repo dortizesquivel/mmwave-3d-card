@@ -28,8 +28,9 @@ const POSES = {
 
 const ease = (s) => (s < 0.5 ? 4 * s * s * s : 1 - Math.pow(-2 * s + 2, 3) / 2);
 
-// Detections of a distance-only sensor. The same shader draws the band on the floor (`flatBand`: radius
-// measured on the floor) and, in 3D, the spherical shells around the sensor where the target can be
+// Detections of a distance-only sensor. The same shader draws the band on the fan (`flatBand`: 1 when the
+// fan is the floor, radius measured on it; 2 when the fan goes through the sensor, radius measured from
+// the sensor, whatever its tilt) and, in 3D, the spherical shells around the sensor where the target can be
 // (radius measured from the sensor, cut at the floor and the ceiling, faded at the beam's edge).
 // Moving: one crest per `wave` metres runs the way the target is going (phase grows away from the sensor
 // or towards it). Still: the whole band breathes. With moving = 0 and breath = 1 it is a plain glow, used
@@ -48,7 +49,7 @@ const BEAM_SHADER = {
     varying vec3 vW;
     void main() {
       vec3 d = vW - origin;
-      float r = flatBand > 0.5 ? length(vW.xz) : length(d);
+      float r = flatBand > 0.5 && flatBand < 1.5 ? length(vW.xz) : length(d);     // 1: on the floor; 0, 2: from the sensor
       float shade = 1.0;
       if (flatBand < 0.5) {
         if (vW.y < 0.0 || vW.y > yMax) discard;
@@ -369,7 +370,7 @@ export class RadarScene {
   /** 1D heatmap: a band per distance bin, coloured by whichever kind (moving or still) spent most time there. */
   _ringHeat(map, values, owner, max) {
     const colors = this.theme.targets.map((h) => new Color(h));
-    const fy = this._fanY();
+    const fy = this._fanY(), fan = this._fanGroup(this.heatGroup);
     values.forEach((v, i) => {
       if (!v) return;
       const n = Math.pow(v / max, 0.5);
@@ -384,7 +385,7 @@ export class RadarScene {
       geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
       const m = new Mesh(geo, new MeshBasicMaterial({ color: colors[owner[i]], transparent: true, opacity: 0.18 + 0.6 * n, depthWrite: false, side: DoubleSide }));
       m.renderOrder = 2;
-      this.heatGroup.add(m);
+      fan.add(m);
     });
     this.heatOn = true;
   }
@@ -440,6 +441,34 @@ export class RadarScene {
     return this.layout?.slice && this.layout.mount !== 'ceiling' ? this.layout.h : 0;
   }
 
+  /** Tilt below the horizontal of a wall sensor, in radians (0 on the ceiling). */
+  _tilt() {
+    return this.layout && this.layout.mount !== 'ceiling' ? ((this.layout.tilt ?? 0) * Math.PI) / 180 : 0;
+  }
+
+  /** The beam's axis: forward, turned down by the tilt; straight down on the ceiling. */
+  _axis() {
+    const t = this._tilt();
+    return this.layout?.mount === 'ceiling' ? V(0, -1, 0) : V(0, -Math.sin(t), Math.cos(t));
+  }
+
+  /**
+   * Where to add what lies on the fan. A fan at the sensor's height turns with the sensor's tilt, so it
+   * stays the beam's middle plane: things built at y = fanY (plus a hair) go into a group that pivots
+   * about the sensor. Otherwise it's the parent itself.
+   */
+  _fanGroup(parent) {
+    const fy = this._fanY(), t = this._tilt();
+    if (!fy || !t) return parent;
+    const pivot = new Group(), inner = new Group();
+    pivot.position.set(0, fy, 0);
+    pivot.rotation.x = t;
+    inner.position.set(0, -fy, 0);
+    pivot.add(inner);
+    parent.add(pivot);
+    return inner;
+  }
+
   /** Radius on the fan for a measured (slant) distance. On the floor, the target's centre is about 1 m up. */
   _horizontal(d) {
     if (this._fanY()) return d;
@@ -461,7 +490,8 @@ export class RadarScene {
 
   _buildRanges() {
     clearGroup(this.rangeGroup);
-    const g = this.rangeGroup, th = this.theme, r = this.ranges, L = this.rangeLabels;
+    const th = this.theme, r = this.ranges, L = this.rangeLabels;
+    const g = this._fanGroup(this.rangeGroup);           // gates, limits and detections on the fan
     const e = this._extent();
     const ceiling = this.layout.mount === 'ceiling';
     const outer = Math.min(e.r, r.gates.length * r.resolution);
@@ -492,14 +522,14 @@ export class RadarScene {
     // inside that cone, cut by the floor and the ceiling. Shown in the 3D and sensor views.
     const half = e.half;
     const cap = new SphereGeometry(1, 72, 18, 0, Math.PI * 2, 0, Math.min(half, Math.PI / 2));
-    const axis = ceiling ? V(0, -1, 0) : V(0, 0, 1);
+    const axis = this._axis();
     const origin = V(0, this.layout.h, 0);
     const yMax = this.room ? this.room.wall_height : ceiling ? this.layout.h + 0.01 : Math.max(2.6, this.layout.h + 0.4);
     const shared = { origin, axis, yMax, cosHalf: Math.cos(Math.min(half, Math.PI / 2)) };
     const shell = (material, radius) => {
       const m = new Mesh(cap, material);
       m.position.copy(origin);
-      m.rotation.x = ceiling ? Math.PI : Math.PI / 2;      // the cap opens around +Y: turn it to the beam's axis
+      m.rotation.x = ceiling ? Math.PI : Math.PI / 2 + this._tilt();      // the cap opens around +Y: turn it to the beam's axis
       m.scale.setScalar(radius);
       m.renderOrder = 3;
       return m;
@@ -509,7 +539,7 @@ export class RadarScene {
     vol.add(shell(beamMaterial({ ...shared, color: new Color(th.accent), opacity: th.dark ? 0.45 : 0.4, breath: 0 }), reach));
     const pulse = shell(beamMaterial({ ...shared, color: new Color(th.accent), breath: 1 }), 1);
     vol.add(pulse);
-    g.add(vol);
+    this.rangeGroup.add(vol);
     this.vol = { group: vol, pulse, reach, cap };
 
     // The two detections: an animated band one gate wide on the floor, a bright line at the measured
@@ -518,7 +548,7 @@ export class RadarScene {
     ['moving', 'still'].forEach((kind, i) => {
       const color = new Color(th.targets[i]);
       const moving = kind === 'moving' ? 1 : 0;
-      const band = new Mesh(new BufferGeometry(), beamMaterial({ color, moving, flatBand: 1 }));
+      const band = new Mesh(new BufferGeometry(), beamMaterial({ color, moving, flatBand: fy ? 2 : 1, origin }));
       const shellMat = beamMaterial({ ...shared, color, moving, wave: r.resolution });
       const layers = Array.from({ length: SHELL_LAYERS }, () => shell(shellMat, 1));
       vol.add(...layers);
@@ -764,7 +794,8 @@ export class RadarScene {
       e = { half, r, bounds: { minX: -r, maxX: r, minZ: -r, maxZ: r } };
     } else {
       const rx = half >= Math.PI / 2 ? range : range * Math.sin(half);
-      e = { half, r: range, rx, bounds: { minX: -rx, maxX: rx, minZ: 0, maxZ: range } };
+      const reach = this._fanY() ? range * Math.cos(this._tilt()) : range;     // a tilted fan reaches less far along the floor
+      e = { half, r: range, rx, bounds: { minX: -rx, maxX: rx, minZ: 0, maxZ: reach } };
     }
     const b = e.bounds;
     const pts = [...(this.room?.walls ?? []), ...(this.room?.furniture ?? []).flatMap((f) => [[f.x[0], f.y[0]], [f.x[1], f.y[1]]])];
@@ -785,18 +816,20 @@ export class RadarScene {
     const aspect = this.camera.aspect || 1.6;
     const planD = Math.max((e.zSpan / 2 + 0.6) / t, (e.xSpan / 2 + 0.6) / (t * aspect));
 
-    const fy = this._fanY();
-    if (name === 'plan') return { pos: e.center.clone().add(V(0, fy + planD, -0.01)), target: e.center.clone().setY(fy), fov: BASE_FOV };
+    const fy = this._fanY(), tilt = this._tilt();
+    const mid = fy - Math.sin(tilt) * e.r * 0.5;           // height of the fan's middle (it slopes down with the tilt)
+    if (name === 'plan') return { pos: e.center.clone().add(V(0, mid + planD, -0.01)), target: e.center.clone().setY(mid), fov: BASE_FOV };
     if (name === 'sensor') {
       return mount === 'ceiling'
         ? { pos: V(0, h - 0.05, -0.02), target: V(0, 0, 0), fov: 100 }
         : fy
-          ? { pos: V(0, h + 0.6, -0.3), target: V(0, h - 0.5, e.r * 0.55), fov: 70 }     // just above the fan, or it is edge-on
+          ? { pos: V(0, h + 0.6, tilt ? 0.3 : -0.3), target: V(0, h - 0.5 - Math.sin(tilt) * e.r * 0.55, Math.cos(tilt) * e.r * 0.55), fov: 70 }     // just above the fan, or it is edge-on; ahead of the housing when tilted
           : { pos: V(0, h + 0.05, 0.15), target: V(0, 0.8, e.r * 0.55), fov: 70 };
     }
-    // A fan at the sensor's height is seen from lower down, so the beam's volume above and below it shows.
-    const dir = mount === 'ceiling' ? V(-0.55, 0.68, -0.48) : fy ? V(-0.4, 0.4, -0.8) : V(-0.32, 0.62, -0.72);
-    const target = e.center.clone().add(V(0, fy ? fy * 0.7 : 0.3, 0));
+    // A fan at the sensor's height is seen from lower down, so the beam's volume above and below it shows;
+    // tilted, the camera turns with it and sees the fan as it would level.
+    const dir = mount === 'ceiling' ? V(-0.55, 0.68, -0.48) : fy ? V(-0.4, 0.4, -0.8).applyAxisAngle(V(1, 0, 0), tilt) : V(-0.32, 0.62, -0.72);
+    const target = e.center.clone().add(V(0, fy ? mid * 0.7 : 0.3, 0));
     return { pos: target.clone().add(dir.normalize().multiplyScalar(planD * 1.05)), target, fov: BASE_FOV };
   }
 
@@ -969,7 +1002,8 @@ export class RadarScene {
     } else {
       const { half, r, rx } = e;
       const fy = this._fanY();
-      lens.position.z = 0.026;
+      const fan = this._fanGroup(g);         // a fan at the sensor's height tilts with it
+      sensor.rotation.x = this._tilt();
       housing.position.z = 0.025;
       lens.position.z = 0.051;
       if (!this.room?.walls.length) {     // without a room, a hint of the wall the sensor hangs on
@@ -980,16 +1014,16 @@ export class RadarScene {
       shape.moveTo(0, 0);
       arcPts(r, half, 0).forEach((p) => shape.lineTo(p.x, p.z));
       shape.lineTo(0, 0);
-      g.add(flat(new ShapeGeometry(shape), th.accent, 0.06, fy + 0.004));
-      g.add(line([V(0, fy + 0.005, 0), ...arcPts(r, half, fy + 0.005), V(0, fy + 0.005, 0)], th.accent, 0.55));
-      for (let k = 1; k < r; k++) g.add(line(arcPts(k, half, fy + 0.005), th.accent, k % 2 ? 0.1 : 0.22));
+      fan.add(flat(new ShapeGeometry(shape), th.accent, 0.06, fy + 0.004));
+      fan.add(line([V(0, fy + 0.005, 0), ...arcPts(r, half, fy + 0.005), V(0, fy + 0.005, 0)], th.accent, 0.55));
+      for (let k = 1; k < r; k++) fan.add(line(arcPts(k, half, fy + 0.005), th.accent, k % 2 ? 0.1 : 0.22));
       for (let k = 2; k <= r; k += 2) {
         const a = -half - 0.07;
-        g.add(label(`${k} m`, 'axis', V(Math.sin(a) * k, fy + 0.02, Math.cos(a) * k)));
+        fan.add(label(`${k} m`, 'axis', V(Math.sin(a) * k, fy + 0.02, Math.cos(a) * k)));
       }
       const beam = [];
       for (const a of [-half, 0, half]) beam.push(sensorEye, V(Math.sin(a) * r, fy, Math.cos(a) * r));
-      g.add(segments(beam, th.accent, 0.16));
+      fan.add(segments(beam, th.accent, 0.16));
       if (fy) {     // the fan floats at the sensor's height: a plumb line shows how high that is
         const plumb = new Line(new BufferGeometry().setFromPoints([sensorEye, V(0, 0, 0)]),
           new LineDashedMaterial({ color: th.fg2, dashSize: 0.08, gapSize: 0.08, transparent: true, opacity: 0.5 }));
@@ -997,10 +1031,12 @@ export class RadarScene {
         g.add(plumb);
       }
       this.pulse = flat(new RingGeometry(0.985, 1, 96, 1, Math.PI / 2 - half, 2 * half), th.accent, 0, fy + 0.006);
+      fan.add(this.pulse);
     }
-    g.add(sensor, this.pulse);
+    g.add(sensor);
+    if (!this.pulse.parent) g.add(this.pulse);
     // Above the sensor, or halfway down the plumb line when the fan sits at the sensor's height.
-    g.add(label(`${this.layout.label} · ${this.layout.heightText}`, 'axis', this._fanY() ? V(0, h * 0.5, -0.3) : V(0, h + 0.45, 0)));
+    g.add(label(`${this.layout.label} · ${this.layout.heightText}`, 'axis', this._fanY() ? V(0, h * 0.5, -0.6) : V(0, h + 0.45, 0)));
     this.sensorEye = sensorEye;
   }
 

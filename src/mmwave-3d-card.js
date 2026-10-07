@@ -423,13 +423,15 @@ class MmwaveRadar3dCard extends HTMLElement {
         this._rows.forEach((r, i) => r.sw.style.setProperty('--c', this._theme.targets[i]));
         if (this._mode === 'heatmap' && this._heat) { this._showHeat(); this._renderPanel(); }
       }
+      const mount = c.mount === 'auto' ? frame.mount ?? 'wall' : c.mount;
       scene.setLayout({
-        mount: c.mount === 'auto' ? frame.mount ?? 'wall' : c.mount,
+        mount,
         h: c.mount_height,
+        tilt: mount === 'wall' ? c.tilt : 0,      // degrees below the horizontal
         range: c.max_range,
         fov: c.fov,
         label: this._adapter.label,
-        heightText: `${this._fmt.m1.format(c.mount_height)} m`,
+        heightText: `${this._fmt.m1.format(c.mount_height)} m${mount === 'wall' && c.tilt ? ` · ${Math.round(c.tilt)}°` : ''}`,
         locale: this._lang,
         zoneStep: this._adapter.zoneStep,
         slice: !!this._adapter.oneD,

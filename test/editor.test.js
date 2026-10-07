@@ -26,6 +26,7 @@ test('the form shows the defaults for the chosen sensor', () => {
   assert.equal(ld6004.mount, 'auto');
   assert.equal(ld6004.max_range, 6);
   assert.equal(ld6004.invert_x, false);
+  assert.equal(ld6004.tilt, 0);
   assert.equal(ld6004.posture_lying, 0.45);
   assert.equal(toFormData({ device: 'ld2450', prefix: 'x' }).mount, 'wall');
 });
@@ -34,6 +35,7 @@ test('fromFormData drops defaults and empty values', () => {
   const prev = { type: 'custom:mmwave-3d-card', device: 'ld2450', prefix: 'x', title: 'Old', posture: { lying: 0.4 } };
   const out = fromFormData({ ...toFormData(prev), title: '', show_table: false, zone_names: ' A , ,B ', posture_lying: '' }, prev);
   assert.deepEqual(out, { type: 'custom:mmwave-3d-card', device: 'ld2450', prefix: 'x', show_table: false, zone_names: ['A', 'B'] });
+  assert.equal(fromFormData({ ...toFormData(prev), tilt: 20 }, prev).tilt, 20);     // a tilt is kept, 0 is the default
 });
 
 test('height and posture fields only appear for sensors with Z', () => {

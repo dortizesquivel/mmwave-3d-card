@@ -7,6 +7,7 @@ import { ADAPTERS, detectDevices } from './adapters/index.js';
 const LABELS = {
   es: {
     device: 'Sensor', prefix: 'Prefijo de las entidades', title: 'Título', mount: 'Montaje', mount_height: 'Altura del sensor (m)',
+    tilt: 'Inclinación hacia abajo (°)',
     max_range: 'Alcance (m)', fov: 'Apertura (°)', view: 'Vista inicial', height: 'Alto de la vista 3D (px)',
     zone_names: 'Nombres de las zonas (separados por comas)', trail_seconds: 'Rastro (s)', show_trail: 'Mostrar rastro',
     show_zones: 'Mostrar zonas', show_table: 'Mostrar tabla', show_interference: 'Mostrar zonas de interferencia',
@@ -18,6 +19,7 @@ const LABELS = {
   },
   en: {
     device: 'Sensor', prefix: 'Entity prefix', title: 'Title', mount: 'Mounting', mount_height: 'Sensor height (m)',
+    tilt: 'Tilt down (°)',
     max_range: 'Range (m)', fov: 'Opening (°)', view: 'Initial view', height: '3D view height (px)',
     zone_names: 'Zone names (comma separated)', trail_seconds: 'Trail (s)', show_trail: 'Show trail',
     show_zones: 'Show zones', show_table: 'Show table', show_interference: 'Show interference zones',
@@ -41,6 +43,7 @@ export function editorSchema(config, hass, L) {
     { type: 'grid', name: '', schema: [
       { name: 'mount', selector: { select: { mode: 'dropdown', options: opts(['auto', 'wall', 'ceiling']) } } },
       { name: 'mount_height', selector: num(0.3, 4, 0.05) },
+      { name: 'tilt', selector: num(0, 90, 1) },
     ] },
     { type: 'grid', name: '', schema: [
       { name: 'max_range', selector: num(1, 12, 0.5) },
@@ -77,7 +80,7 @@ function defaultsFor(device) {
   const d = ADAPTERS[device]?.defaults ?? {};
   return {
     show_trail: true, show_zones: true, show_table: true, show_interference: true, allow_zone_editing: true, invert_x: false,
-    mount: d.mount ?? 'wall', mount_height: 1.5, max_range: d.maxRange ?? 6, fov: d.fov ?? 120, view: '3d', height: 380,
+    mount: d.mount ?? 'wall', mount_height: 1.5, tilt: 0, max_range: d.maxRange ?? 6, fov: d.fov ?? 120, view: '3d', height: 380,
     trail_seconds: 8, posture_sitting: 0.95, posture_lying: 0.45,
   };
 }
