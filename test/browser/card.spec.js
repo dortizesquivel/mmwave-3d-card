@@ -344,6 +344,28 @@ test('a tilted LD2410 turns its beam and fan down and keeps each detection at it
 test.describe('with motion', () => {
   test.use({ reducedMotion: 'no-preference' });
 
+  test('the scan wave grows out of the sensor, and stays subtle', async ({ page }) => {
+    await openDemo(page, 'cards=ld2450,ld2410');
+    const sample = () => page.evaluate(() => {
+      const [a, b] = window.demo.cards;
+      return { ring: a._scene.pulse.material.opacity, scale: a._scene.pulse.scale.x, shell: b._scene.vol.pulse.material.uniforms.opacity.value };
+    });
+    let ring = 0, shell = 0;
+    const scales = new Set();
+    for (let k = 0; k < 16; k++) {                                         // a little more than one 2.8 s cycle
+      const s = await sample();
+      ring = Math.max(ring, s.ring);
+      shell = Math.max(shell, s.shell);
+      scales.add(Math.round(s.scale * 4));
+      await page.waitForTimeout(200);
+    }
+    expect(ring).toBeGreaterThan(0.05);
+    expect(ring).toBeLessThanOrEqual(0.14);                                // on the floor: a hint, not a feature
+    expect(shell).toBeGreaterThan(0.05);
+    expect(shell).toBeLessThanOrEqual(0.32);                               // in 3D (LD2410): the same
+    expect(scales.size).toBeGreaterThan(3);                                // it grows
+  });
+
   test('LD2410: moving and still in one gate take turns, and the ripples follow the target', async ({ page }) => {
     await openDemo(page, 'cards=ld2410&t=15&frozen=1');                    // someone walking away, seen as moving and still at 3.8 m
     const c = card(page);
@@ -368,6 +390,144 @@ test.describe('with motion', () => {
     await step(1);                                                          // 3.1 m
     await expect.poll(async () => (await state()).dir).toBe(-1);          // towards the sensor
   });
+});
+
+test('trail and zone buttons hide those layers', async ({ page }) => {
+  await openDemo(page, 'cards=ld2450');
+  const c = card(page);
+  const layers = () => c.evaluate((el) => ({ trail: el._scene.showTrail, zones: el._scene.zoneGroup.visible }));
+  expect(await layers()).toEqual({ trail: true, zones: true });
+  await c.locator('[data-toggle="trail"]').click();
+  await c.locator('[data-toggle="zones"]').click();
+  await expect(c.locator('[data-toggle="trail"]')).toHaveAttribute('aria-pressed', 'false');
+  await expect(c.locator('[data-toggle="zones"]')).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(layers).toEqual({ trail: false, zones: false });
+});
+
+test('a zone chip and a table row open their more-info dialogs', async ({ page }) => {
+  await openDemo(page, 'cards=ld2450,ld2410');
+  await card(page, 0).locator('.zones .zone').first().click();
+  await expect.poll(() => page.evaluate(() => window.demo.moreInfo.at(-1))).toBe('sensor.kin_estudio_piscina_zone_1_all_target_count');
+  await card(page, 0).locator('tbody tr').nth(1).click();
+  await expect.poll(() => page.evaluate(() => window.demo.moreInfo.at(-1))).toBe('sensor.kin_estudio_piscina_target_2_x');
+  await card(page, 1).locator('tbody tr').nth(1).click();                  // LD2410: the still target's distance
+  await expect.poll(() => page.evaluate(() => window.demo.moreInfo.at(-1))).toBe('sensor.esp32_pasillo_still_distance');
+});
+
+test('the card follows Home Assistant into Spanish', async ({ page }) => {
+  await openDemo(page, 'cards=ld6004,ld2410&lang=es');
+  await expect(card(page, 0).locator('[data-mode]')).toHaveText(['En vivo', 'Repetición', 'Mapa de calor']);
+  await expect(card(page, 0).locator('[data-view]')).toHaveText(['3D', 'Planta', 'Sensor']);
+  await expect(card(page, 0).locator('thead th')).toHaveText(['Objetivo', 'Posición (m)', 'Altura', 'Postura', 'Zona']);
+  await expect(card(page, 0).locator('.chip')).toHaveText('3 personas');
+  await expect(card(page, 1).locator('thead th')).toHaveText(['Detección', 'Distancia', 'Energía', 'Puerta']);
+});
+
+test('a missing entity says which one, so the prefix can be fixed', async ({ page }) => {
+  await openDemo(page, 'cards=ld2450');
+  const c = card(page);
+  await c.evaluate((el) => el.setConfig({ type: 'custom:mmwave-3d-card', device: 'ld2450', prefix: 'nope' }));
+  await page.evaluate(() => window.demo.push());
+  await expect(c.locator('.status')).toBeVisible();
+  await expect(c.locator('.status')).toContainText('Cannot find sensor.nope_target_1_x');
+});
+
+test('show_table and show_interference leave the table and the interference zones out', async ({ page }) => {
+  await openDemo(page, 'cards=ld6004');
+  const c = card(page);
+  await expect(c.locator('.zones')).toContainText('Interference 1');
+  await c.evaluate((el) => el.setConfig({ type: 'custom:mmwave-3d-card', device: 'ld6004', prefix: 'radar_ld6004', show_interference: false }));
+  await page.evaluate(() => window.demo.push());
+  await expect(c.locator('.zones .zone')).toHaveCount(3);
+  await expect(c.locator('.zones')).not.toContainText('Interference');
+  expect(await c.evaluate((el) => el._scene.lastZones.zones.some((z) => z.kind === 'interference'))).toBe(false);
+  await c.evaluate((el) => el.setConfig({ type: 'custom:mmwave-3d-card', device: 'ld6004', prefix: 'radar_ld6004', show_table: false }));
+  await page.evaluate(() => window.demo.push());
+  await expect(c.locator('table')).toHaveCount(0);
+  await expect(c.locator('canvas')).toBeVisible();
+});
+
+test('the card registers in the card picker with a stub that finds a sensor', async ({ page }) => {
+  await openDemo(page, 'cards=ld2450');
+  const info = await page.evaluate(() => {
+    const Card = customElements.get('mmwave-3d-card');
+    const hass = window.demo.cards[0].hass;
+    return {
+      picker: (window.customCards ?? []).filter((c) => c.type === 'mmwave-3d-card').map((c) => ({ name: c.name, preview: c.preview })),
+      stub: Card.getStubConfig(hass),
+      editor: Card.getConfigElement().localName,
+    };
+  });
+  expect(info.picker).toHaveLength(1);
+  expect(info.picker[0].name).toContain('mmWave');
+  expect(info.stub.device).toMatch(/^ld(2450|6004|2410)$/);
+  expect(info.stub.prefix).toBeTruthy();
+  expect(info.editor).toBe('mmwave-3d-card-editor');
+});
+
+test('leaving the view releases WebGL, and coming back draws again', async ({ page }) => {
+  await openDemo(page, 'cards=ld2450');
+  const lost = await page.evaluate(async () => {
+    const el = window.demo.cards[0], parent = el.parentElement;
+    const gl = el._scene.renderer.getContext();
+    el.remove();
+    await new Promise((r) => setTimeout(r, 100));
+    const gone = { scene: el._scene, lost: gl.isContextLost() };
+    parent.append(el);
+    return gone;
+  });
+  expect(lost).toEqual({ scene: null, lost: true });
+  await expect.poll(() => card(page).evaluate((el) => el._scene?.framesDrawn ?? 0)).toBeGreaterThan(0);
+});
+
+test('with reduced motion an idle card stops drawing and the scan wave stays off', async ({ page }) => {
+  await openDemo(page, 'cards=ld2450,ld2410');
+  await page.waitForTimeout(1500);                                          // trails drain, figures settle
+  const frames = () => card(page, 0).evaluate((el) => el._scene.framesDrawn);
+  const before = await frames();
+  await page.waitForTimeout(1000);
+  expect(await frames()).toBe(before);
+  const wave = await card(page, 1).evaluate((el) => ({ ring: el._scene.pulse.material.opacity, shell: el._scene.vol.pulse.visible }));
+  expect(wave).toEqual({ ring: 0, shell: false });
+});
+
+test('only admins get the button to edit zones', async ({ page }) => {
+  await openDemo(page, 'cards=ld2450');
+  // Two fresh cards on the same data: one seen by an admin, one by a user who isn't (HA reloads when the user changes).
+  const visible = await page.evaluate(async () => {
+    const make = (admin) => {
+      const el = document.createElement('mmwave-3d-card');
+      el.setConfig({ type: 'custom:mmwave-3d-card', device: 'ld2450', prefix: 'kin_estudio_piscina' });
+      el.hass = { ...window.demo.cards[0].hass, user: { is_admin: admin } };
+      document.getElementById('cards').append(el);
+      return el;
+    };
+    const admin = make(true), user = make(false);
+    await new Promise((r) => setTimeout(r, 1000));
+    const shown = (el) => !el.shadowRoot.querySelector('[data-act="edit"]').hidden;
+    return { admin: shown(admin), user: shown(user) };
+  });
+  expect(visible).toEqual({ admin: true, user: false });
+});
+
+test('switching the theme repaints the scene in the new colours', async ({ page }) => {
+  await openDemo(page, 'cards=ld2450&theme=light');
+  const theme = () => card(page).evaluate((el) => ({ dark: el._scene.theme.dark, bg: el._scene.theme.bg }));
+  const light = await theme();
+  expect(light.dark).toBe(false);
+  await page.locator('#theme').click();
+  await expect.poll(async () => (await theme()).dark).toBe(true);
+  expect((await theme()).bg).not.toBe(light.bg);
+});
+
+test('a room draws its walls and furniture', async ({ page }) => {
+  await openDemo(page, 'cards=ld6004');
+  const room = await card(page).evaluate((el) => ({
+    objects: el._scene.roomGroup.children.length,
+    labels: [...el.shadowRoot.querySelectorAll('.label, .axis, .furniture, div')].map((d) => d.textContent).filter((t) => /^(Desk|Shelf|Sofa)$/.test(t)),
+  }));
+  expect(room.objects).toBeGreaterThan(3);
+  expect(new Set(room.labels)).toEqual(new Set(['Desk', 'Shelf', 'Sofa']));
 });
 
 test('the visual editor changes the card', async ({ page }) => {
