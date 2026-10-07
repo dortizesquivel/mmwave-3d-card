@@ -2,7 +2,7 @@ import { buildFrame, detectDevices, getAdapter, resolveEntities } from './adapte
 import { normalizeConfig, VIEWS } from './config.js';
 import './editor.js';
 import { buildHeatmap, buildRingHeatmap, combine } from './heatmap.js';
-import { fetchHistory, historySpan, statesAt } from './history.js';
+import { activityIntervals, fetchHistory, historySpan, skipQuiet, statesAt } from './history.js';
 import { formatDuration, strings, zoneName } from './i18n.js';
 import { RadarScene } from './scene.js';
 import { readTheme } from './theme.js';
@@ -11,7 +11,7 @@ const VERSION = typeof __VERSION__ === 'undefined' ? 'dev' : __VERSION__;
 
 const MODES = ['live', 'replay', 'heatmap'];
 const PERIODS = [1, 6, 24];                       // hours of history
-const SPEEDS = [1, 10, 60];
+const SPEEDS = [1, 10, 60, 600];
 const HEAT_STEP = { 1: 1000, 6: 2000, 24: 5000 };  // ms between heatmap samples
 const HEAT_CELL = 0.2;                            // m
 const CONFIRM_TIMEOUT = 8000;                     // ms to wait for the sensor to report an edited zone
@@ -50,7 +50,10 @@ const STYLE = `
     border-bottom: 1px solid var(--divider-color); font-size: 13px; color: var(--secondary-text-color); }
   .panel[hidden] { display: none; }
   .panel .seg { backdrop-filter: none; background: none; }
-  .panel input[type="range"] { flex: 1 1 160px; min-width: 120px; accent-color: var(--primary-color); }
+  .panel .scrub { flex: 1 1 160px; min-width: 120px; display: flex; flex-direction: column; gap: 2px; }
+  .panel input[type="range"] { width: 100%; margin: 0; accent-color: var(--primary-color); }
+  .activity { position: relative; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--primary-text-color) 10%, transparent); }
+  .activity i { position: absolute; top: 0; bottom: 0; min-width: 2px; border-radius: 2px; background: var(--primary-color); }
   .panel .time { display: inline-block; min-width: 11ch; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
   /* Play/Pause: both labels share one grid cell, so the button is as wide as the longer one and never resizes. */
   .swap { display: inline-grid; }
@@ -145,7 +148,7 @@ class MmwaveRadar3dCard extends HTMLElement {
     this._scene = null;
     this._mode = 'live';
     this._period = 1;
-    this._replay = { t: 0, playing: false, speed: 10 };
+    this._replay = { t: 0, playing: false, speed: 10, skip: true };     // skip: jump over stretches with nobody detected
   }
 
   static getConfigElement() {
@@ -612,6 +615,7 @@ class MmwaveRadar3dCard extends HTMLElement {
     const end = Date.now(), start = end - this._period * 3600e3;
     const token = (this._historyToken = {});
     this._history = null;
+    this._activity = null;
     this._heat = null;
     this._scene?.setHeatmap(null);
     this._panelMsg = { text: t.loadingHistory };
@@ -629,6 +633,7 @@ class MmwaveRadar3dCard extends HTMLElement {
         this._history = { data, start, end, base };
         this._panelMsg = null;
         if (this._mode === 'replay') {
+          this._activity = this._computeActivity();
           this._replay.t = Math.max(start, span.first);
           this._showReplayFrame();
         } else if (this._mode === 'heatmap') {
@@ -640,6 +645,23 @@ class MmwaveRadar3dCard extends HTMLElement {
       this._panelMsg = { text: t.historyFailed(err?.message ?? String(err)), error: true };
     }
     this._renderPanel();
+  }
+
+  /** When anyone was detected in the loaded history: [from, to] intervals, for skipping and for the strip. */
+  _computeActivity() {
+    const h = this._history, e = this._entities;
+    // Only what decides "someone is there": the targets' coordinates, or the LD2410's binaries and distances.
+    const ids = this._adapter.oneD
+      ? [e.moving.on, e.still.on, e.moving.distance, e.still.distance]
+      : e.targets.flatMap((t) => [t.x, t.y, t.z]).filter(Boolean);
+    const data = new Map(ids.filter((id) => h.data.has(id)).map((id) => [id, h.data.get(id)]));
+    const base = Object.fromEntries(ids.map((id) => [id, h.base[id]]));
+    const opts = this._frameOpts();
+    const isActive = (t) => {
+      const f = buildFrame(this._adapter, { states: statesAt(data, t, base) }, this._entities, opts);
+      return f.ranges ? f.ranges.moving.present || f.ranges.still.present : f.targets.some((x) => x.present);
+    };
+    return activityIntervals(data, h.start, h.end, isActive);
   }
 
   /** Targets as they were at time t, from the history. Zone occupancy comes from those positions. */
@@ -681,8 +703,14 @@ class MmwaveRadar3dCard extends HTMLElement {
     let last = performance.now();
     this._replayTimer = setInterval(() => {
       const now = performance.now();
-      this._replay.t = Math.min(this._history.end, this._replay.t + (now - last) * this._replay.speed);
+      let t = Math.min(this._history.end, this._replay.t + (now - last) * this._replay.speed);
       last = now;
+      if (this._replay.skip && this._activity) {
+        const next = skipQuiet(this._activity, t);
+        if (next === null) t = this._history.end;                 // nobody until the end
+        else if (next > t) { t = next; this._scene?.clearTrails(); }
+      }
+      this._replay.t = t;
       if (this._replay.t >= this._history.end) this._stopReplay();
       this._showReplayFrame();
     }, 100);
@@ -864,10 +892,15 @@ class MmwaveRadar3dCard extends HTMLElement {
         p.innerHTML = periods + (h ? `
           <button type="button" class="btn swap" data-act="play" data-playing="${this._replay.playing}">
             <span class="play-label">${esc(t.play)}</span><span class="pause-label">${esc(t.pause)}</span></button>
-          <input type="range" min="${h.start}" max="${h.end}" step="1000" value="${this._replay.t}" aria-label="${esc(t.replay)}">
+          <div class="scrub">
+            <input type="range" min="${h.start}" max="${h.end}" step="1000" value="${this._replay.t}" aria-label="${esc(t.replay)}">
+            <div class="activity" role="img" aria-label="${esc(t.activity)}">${(this._activity ?? []).map(([a, b]) =>
+              `<i style="left:${((100 * (a - h.start)) / (h.end - h.start)).toFixed(3)}%;width:${((100 * (b - a)) / (h.end - h.start)).toFixed(3)}%"></i>`).join('')}</div>
+          </div>
           <span class="time"></span>
           <div class="seg" role="group" aria-label="Speed">${SPEEDS.map((s) =>
-            `<button type="button" data-speed="${s}" aria-pressed="${s === this._replay.speed}">×${s}</button>`).join('')}</div>` : '') + msg;
+            `<button type="button" data-speed="${s}" aria-pressed="${s === this._replay.speed}">×${s}</button>`).join('')}</div>
+          <div class="seg"><button type="button" data-act="skip" aria-pressed="${this._replay.skip}" title="${esc(t.skipQuietHint)}">${esc(t.skipQuiet)}</button></div>` : '') + msg;
       } else {
         // One chip per target with its time; tapping it shows or hides that target's colour on the floor.
         const heat = this._heat;
@@ -899,6 +932,10 @@ class MmwaveRadar3dCard extends HTMLElement {
       this._renderPanel();
     }));
     p.querySelector('[data-act="play"]')?.addEventListener('click', () => this._togglePlay());
+    p.querySelector('[data-act="skip"]')?.addEventListener('click', (e) => {
+      this._replay.skip = !this._replay.skip;
+      e.currentTarget.setAttribute('aria-pressed', String(this._replay.skip));
+    });
     p.querySelector('input[type="range"]')?.addEventListener('input', (e) => {
       const next = Number(e.target.value);
       if (Math.abs(next - this._replay.t) > 3000) this._scene?.clearTrails();

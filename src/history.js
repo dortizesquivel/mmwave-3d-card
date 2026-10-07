@@ -68,3 +68,34 @@ export function historySpan(history) {
   }
   return Number.isFinite(first) ? { first, last } : null;
 }
+
+/**
+ * When something was detected: [from, to] intervals within [start, end]. `isActive(t)` says whether
+ * anyone is detected at time t; it is only asked at start and at each recorded change, since nothing
+ * can change in between.
+ */
+export function activityIntervals(history, start, end, isActive) {
+  const times = new Set();
+  for (const s of history.values()) for (const t of s.t) if (t > start && t <= end) times.add(t);
+  const out = [];
+  let from = isActive(start) ? start : null;
+  for (const t of [...times].sort((a, b) => a - b)) {
+    const on = isActive(t);
+    if (on && from === null) from = t;
+    else if (!on && from !== null) { out.push([from, t]); from = null; }
+  }
+  if (from !== null) out.push([from, end]);
+  return out;
+}
+
+/**
+ * Where playback goes next when quiet stretches are skipped: t itself while something is detected or the
+ * next detection is under `minGap` away, else `lead` ms before the next detection, or null after the last.
+ */
+export function skipQuiet(intervals, t, { minGap = 5000, lead = 1000 } = {}) {
+  for (const [from, to] of intervals) {
+    if (t < from) return from - t < minGap ? t : from - lead;
+    if (t < to) return t;
+  }
+  return null;
+}

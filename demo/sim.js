@@ -289,9 +289,13 @@ export class Sim {
     const sim = new Sim({ seed, start: 0, coarse: seconds > 3600 });
     const out = Object.fromEntries(ids.map((id) => [id, []]));
     const t0 = endMs / 1000 - seconds;
+    // A hallway is empty most of the time: in the recorded history the LD2410 sees someone for 45 s
+    // every 6 minutes, so replay has quiet stretches to skip.
+    const hallQuiet = (clock) => clock % 360 >= 45;
+    const hallBinary = new RegExp(`^binary_sensor\\.${LD2410.prefix}_(moving_target|still_target|presence)$`);
     sim.onPublish = (states, clock) => {
       for (const id of ids) {
-        const s = states[id]?.state, list = out[id];
+        const s = hallQuiet(clock) && hallBinary.test(id) ? 'off' : states[id]?.state, list = out[id];
         if (s !== undefined && (!list.length || list[list.length - 1].s !== s)) list.push({ s, lu: t0 + clock });
       }
     };
