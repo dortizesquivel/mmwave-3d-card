@@ -44,6 +44,16 @@ test('renders the three demo cards with live data', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('a card off screen draws nothing until it is scrolled into view', async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 700 });
+  await openDemo(page, 'capture=1');                       // one column: the third card starts below the window
+  const frames = (i) => card(page, i).evaluate((el) => el._scene.framesDrawn);
+  expect(await frames(0)).toBeGreaterThan(0);
+  expect(await frames(2)).toBe(0);
+  await card(page, 2).scrollIntoViewIfNeeded();
+  await expect.poll(() => frames(2)).toBeGreaterThan(0);
+});
+
 test('view buttons move the camera', async ({ page }) => {
   await openDemo(page, 'cards=ld2450');
   const c = card(page);

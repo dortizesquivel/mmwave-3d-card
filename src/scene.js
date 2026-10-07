@@ -111,6 +111,7 @@ export class RadarScene {
     this.trailAcc = 0;
     // Frames are only drawn while something moves or after a change, so an idle card costs nothing.
     this.dirty = true;
+    this.framesDrawn = 0;
     this.controls.addEventListener('change', () => { this.dirty = true; });
 
     this.ro = new ResizeObserver(() => this._resize());
@@ -936,6 +937,7 @@ export class RadarScene {
 
     if (!animating && !this.dirty) return;
     this.dirty = false;
+    this.framesDrawn++;
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);
   }

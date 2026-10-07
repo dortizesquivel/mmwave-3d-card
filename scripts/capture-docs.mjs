@@ -21,7 +21,7 @@ let browser;
 
 // ---------- helpers ----------
 
-async function open({ query, theme = 'dark', width = 760, height = 800, still = true, video = false }) {
+async function open({ query, theme = 'dark', width = 760, height = 800, still = true, video = false, capture = true }) {
   const ctx = await browser.newContext({
     viewport: { width, height },
     deviceScaleFactor: still ? 2 : 1,
@@ -31,8 +31,13 @@ async function open({ query, theme = 'dark', width = 760, height = 800, still = 
   });
   const page = await ctx.newPage();
   const started = Date.now();
-  await page.goto(`${BASE}?theme=${theme}&seed=1&capture=1&${query}`);
+  await page.goto(`${BASE}?theme=${theme}&seed=1${capture ? '&capture=1' : ''}&${query}`);
   await page.waitForFunction(() => window.demo?.cards?.every((c) => c._scene));
+  if (still) {
+    // Cards stop drawing while off screen, so a still capture must fit the whole page in the window.
+    const full = await page.evaluate(() => document.documentElement.scrollHeight);
+    if (full > height) await page.setViewportSize({ width, height: full });
+  }
   await page.mouse.move(width * 0.5, height * 0.95);
   await wait(1200);
   return { ctx, page, card: page.locator('mmwave-3d-card').first(), skip: (Date.now() - started) / 1000, started };
@@ -109,7 +114,7 @@ const viewport = (card) => card.locator('.viewport');
 const ASSETS = {
   // Hero image: the three demo cards.
   async screenshot() {
-    const { ctx, page } = await open({ query: 't=48&frozen=1', width: 1400, height: 770 });
+    const { ctx, page } = await open({ query: 't=48&frozen=1', width: 1400, height: 770, capture: false });
     await page.locator('main').screenshot({ path: 'docs/screenshot.png' });
     await ctx.close();
   },
