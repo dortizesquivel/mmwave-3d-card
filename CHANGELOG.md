@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.0 - 2026-10-07
+
+- CI: unit and browser tests on every pull request; more tests (#2) (36b028b)
+- Tilt for wall sensors that point down (e3b2aa2)
+
 ## v0.5.0 - 2026-10-07
 
 - test: update screenshot baselines (09b3ffc)
