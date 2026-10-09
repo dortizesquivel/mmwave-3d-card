@@ -23,8 +23,8 @@ Someone who has contributed substantially and steadily, through several merged p
 
 If the maintainer stops being available:
 
-- The maintainer has designated a successor on GitHub ([account successor](https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-personal-account-on-github/managing-access-to-your-personal-account/maintaining-ownership-continuity-of-your-personal-accounts-repositories)), who can take over the repository, its issues and its releases.
-- Everything needed to keep the project going lives in the repository: the source, the tests, the docs and the workflows that build, sign and publish releases. The only secret is the deploy key, which a new owner can replace.
+- Everything needed to keep the project going lives in the repository: the source, the tests, the docs and the workflows that build, sign and publish releases. Releases are signed through GitHub's OIDC, so there are no signing keys to hand over; the only secret is the deploy key, which a new owner can replace.
+- The maintainer plans to designate a successor on GitHub ([account successor](https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-personal-account-on-github/managing-access-to-your-personal-account/maintaining-ownership-continuity-of-your-personal-accounts-repositories)), who could then take over the repository, its issues and its releases. Until then, the way to continue is a fork.
 - The code is MIT licensed, so anyone can fork it and carry on; HACS users can switch to a fork by adding it as a custom repository.
 
 ## Changing this document
