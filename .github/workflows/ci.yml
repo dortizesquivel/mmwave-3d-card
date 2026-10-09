@@ -1,6 +1,6 @@
 name: CI
 
-# Runs on every pull request and on main. "Unit tests" and "Browser tests" are required checks:
+# Runs on every pull request and on main. "Unit tests" (with the audit and the linter) and "Browser tests" are required checks:
 # main only accepts changes through a pull request where both (and the HACS validation) pass.
 on:
   push:
@@ -28,6 +28,8 @@ jobs:
       - run: npm ci
       - name: Known vulnerabilities in what ships (three.js)
         run: npm audit --omit=dev --audit-level=moderate
+      - name: Lint (ESLint's recommended rules; any warning fails)
+        run: npm run lint
       - name: Unit tests, with a coverage floor
         run: npm run test:coverage
       - name: Build

@@ -707,9 +707,12 @@ Details, and how to report a vulnerability privately, are in [SECURITY.md](SECUR
 
 ## Development
 
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for what a pull request needs (tests for new functionality, a clean lint, the docs).
+
 ```bash
 npm ci
 npm test          # unit tests (node:test): adapters, config, editor, history, heatmap, texts, model, and fuzzing with fast-check
+npm run lint      # ESLint's recommended rules; any warning fails
 npm run test:coverage   # the same, failing below 85 % of lines and branches or 90 % of functions
 npm run build     # bundles src/ and three.js into dist/mmwave-3d-card.js
 npm run watch     # rebuilds on change, unminified with source maps
@@ -733,7 +736,7 @@ npm run test:browser              # interaction tests; screenshot comparisons on
 
 `main` is protected: changes go in through a pull request, and it can only be merged when the [CI workflow](.github/workflows/ci.yml) passes on it, up to date with `main`:
 
-- **Unit tests**: `npm run test:coverage` and the build.
+- **Unit tests**: `npm audit` of what ships, `npm run lint`, `npm run test:coverage` and the build.
 - **Browser tests**: the Playwright tests above, screenshots included.
 - **HACS**: the [HACS validation](.github/workflows/validate.yml), which also runs every week.
 
