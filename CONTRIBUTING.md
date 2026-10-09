@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping. Bug reports, ideas and pull requests are welcome.
+Thanks for helping. Bug reports, ideas and pull requests are welcome. Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md); how decisions are made is in [GOVERNANCE.md](GOVERNANCE.md).
 
 ## Reporting
 
@@ -22,6 +22,14 @@ Thanks for helping. Bug reports, ideas and pull requests are welcome.
 - `npm run lint` must pass with no warnings (ESLint's recommended rules).
 - User-visible text goes through `src/i18n.js`, in English and Spanish.
 - Keep the card light: it runs on wall tablets. New dependencies need a good reason; three.js is the only runtime one.
+
+## Sign-off (DCO)
+
+Every commit in a pull request certifies the [Developer Certificate of Origin 1.1](https://developercertificate.org/): that you wrote the change or otherwise have the right to submit it under the project's licence. Sign it off with `git commit -s`, which adds a line like:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
 
 ## Running it
 
