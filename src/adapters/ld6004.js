@@ -1,4 +1,4 @@
-import { findPrefixes, readBool, readLength, readText } from './common.js';
+import { findPrefixes, MAX_LENGTH, readBool, readLength, readText } from './common.js';
 
 // HLK-LD6004 with the external ESPHome component github.com/javierconfoie/esphome-ld6004.
 // Entity ids follow the names in its example YAML ("Target 0 X", "Zone 0 Presence", ...).
@@ -119,8 +119,9 @@ export function parseZones(text) {
   try { list = JSON.parse(text); } catch { return []; }
   if (!Array.isArray(list)) return [];
   return list.map((z) => {
-    const v = [z?.x0, z?.x1, z?.y0, z?.y1, z?.z0, z?.z1].map(Number);
-    if (v.some((n) => !Number.isFinite(n))) return null;
+    // Only numbers and numeric strings count: Number() on an object can throw (found by the fuzz tests).
+    const v = [z?.x0, z?.x1, z?.y0, z?.y1, z?.z0, z?.z1].map((n) => (typeof n === 'number' || typeof n === 'string' ? Number(n) : NaN));
+    if (v.some((n) => !Number.isFinite(n) || Math.abs(n) > MAX_LENGTH)) return null;
     const [x1, x2, y1, y2, z1, z2] = v;
     if (x1 === x2 || y1 === y2) return null;
     const hasZ = z1 !== z2;

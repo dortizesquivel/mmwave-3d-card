@@ -1,6 +1,6 @@
 name: CI
 
-# Runs on every pull request and on main. "Unit tests" and "Browser tests" are required checks:
+# Runs on every pull request and on main. "Unit tests" (with the audit and the linter) and "Browser tests" are required checks:
 # main only accepts changes through a pull request where both (and the HACS validation) pass.
 on:
   push:
@@ -20,12 +20,16 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Known vulnerabilities in what ships (three.js)
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Lint (ESLint's recommended rules; any warning fails)
+        run: npm run lint
       - name: Unit tests, with a coverage floor
         run: npm run test:coverage
       - name: Build
@@ -35,17 +39,17 @@ jobs:
     name: Browser tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - run: node_modules/.bin/playwright install --with-deps chromium
       - name: Playwright (interactions and screenshots)
-        run: npx playwright test
-      - uses: actions/upload-artifact@v4
+        run: node_modules/.bin/playwright test
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: failure()
         with:
           name: playwright-report

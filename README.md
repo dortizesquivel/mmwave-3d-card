@@ -4,6 +4,9 @@
 [![GitHub release](https://img.shields.io/github/v/release/dortizesquivel/mmwave-3d-card?include_prereleases)](https://github.com/dortizesquivel/mmwave-3d-card/releases)
 [![CI](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/ci.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/ci.yml)
 [![Validate](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/validate.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/validate.yml)
+[![CodeQL](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/codeql.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dortizesquivel/mmwave-3d-card/badge)](https://scorecard.dev/viewer/?uri=github.com/dortizesquivel/mmwave-3d-card)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15325/badge)](https://www.bestpractices.dev/projects/15325)
 [![License: MIT](https://img.shields.io/github/license/dortizesquivel/mmwave-3d-card)](LICENSE)
 
 **[Try it live](https://dortizesquivel.github.io/mmwave-3d-card/)**: the card running in your browser, with simulated people in a 3D living room.
@@ -24,7 +27,7 @@ It supports three Hi-Link radars:
 
 > **Status: early.** The LD2450 adapter follows the entity names from the ESPHome docs. The LD6004 adapter follows the external component's source and example YAML, but it has **not been tested with real hardware yet**: the sign of Z and the axes of the ceiling mode may need adjusting. Please open an issue with your readings if something looks off.
 
-**Contents:** [Sensor gallery](#sensor-gallery) · [Requirements](#requirements) · [Installation](#installation) · [Features](#features) · [Quick start](#quick-start) · [Using the card](#using-the-card) · [Configuration reference](#configuration-reference) · [Choosing an HLK sensor](#choosing-an-hlk-sensor) · [Development](#development)
+**Contents:** [Sensor gallery](#sensor-gallery) · [Requirements](#requirements) · [Installation](#installation) · [Features](#features) · [Quick start](#quick-start) · [Using the card](#using-the-card) · [Configuration reference](#configuration-reference) · [Choosing an HLK sensor](#choosing-an-hlk-sensor) · [Security](#security) · [Development](#development)
 
 ## Sensor gallery
 
@@ -693,11 +696,26 @@ What counts against each of them:
 
 The antenna-count argument comes from radar theory, not from a measurement.
 
+## Security
+
+The card runs in your browser with the permissions of whoever views the dashboard.
+
+- **What it reads:** the entities you configure and their history.
+- **What it changes:** something only when an admin edits zones or switches the LD2410's engineering mode.
+- **What it downloads:** the room model, if you set one. There is no telemetry and nothing loads from external servers.
+
+Every change is checked by CodeQL, `npm audit`, ESLint, fuzzing and the tests. The [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/dortizesquivel/mmwave-3d-card) rates the project's practices, and the project holds the [OpenSSF Best Practices passing badge](https://www.bestpractices.dev/projects/15325). Every release's file is signed with a build-provenance attestation: `gh attestation verify mmwave-3d-card.js --repo dortizesquivel/mmwave-3d-card` proves it was built by the release workflow from the tagged source.
+
+Details, and how to report a vulnerability privately, are in [SECURITY.md](SECURITY.md).
+
 ## Development
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for what a pull request needs (tests for new functionality, a clean lint, the docs).
 
 ```bash
 npm ci
-npm test          # unit tests (node:test): adapters, config, editor, history, heatmap, texts
+npm test          # unit tests (node:test): adapters, config, editor, history, heatmap, texts, model, and fuzzing with fast-check
+npm run lint      # ESLint's recommended rules; any warning fails
 npm run test:coverage   # the same, failing below 85 % of lines and branches or 90 % of functions
 npm run build     # bundles src/ and three.js into dist/mmwave-3d-card.js
 npm run watch     # rebuilds on change, unminified with source maps
@@ -721,7 +739,7 @@ npm run test:browser              # interaction tests; screenshot comparisons on
 
 `main` is protected: changes go in through a pull request, and it can only be merged when the [CI workflow](.github/workflows/ci.yml) passes on it, up to date with `main`:
 
-- **Unit tests**: `npm run test:coverage` and the build.
+- **Unit tests**: `npm audit` of what ships, `npm run lint`, `npm run test:coverage` and the build.
 - **Browser tests**: the Playwright tests above, screenshots included.
 - **HACS**: the [HACS validation](.github/workflows/validate.yml), which also runs every week.
 

@@ -24,6 +24,7 @@
     "watch": "node build.mjs --watch",
     "test": "node --test \"test/**/*.test.js\"",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=85 --test-coverage-branches=85 --test-coverage-functions=90 \"test/**/*.test.js\"",
+    "lint": "eslint . --max-warnings 0",
     "demo": "node scripts/serve.mjs 8766",
     "test:browser": "playwright test",
     "test:browser:update": "VISUAL=1 playwright test --update-snapshots",
@@ -33,7 +34,11 @@
     "three": "0.186.1"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@playwright/test": "1.63.0",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "eslint": "10.11.0",
+    "fast-check": "4.10.2",
+    "globals": "17.12.0"
   }
 }
