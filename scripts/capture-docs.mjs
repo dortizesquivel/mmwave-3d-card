@@ -21,7 +21,7 @@ let browser;
 
 // ---------- helpers ----------
 
-async function open({ query, theme = 'dark', width = 760, height = 800, still = true, video = false, capture = true }) {
+async function open({ query, theme = 'light', width = 760, height = 800, still = true, video = false, capture = true }) {
   const ctx = await browser.newContext({
     viewport: { width, height },
     deviceScaleFactor: still ? 2 : 1,
@@ -82,7 +82,7 @@ function floorPoint(card, x, y) {
 const ffmpeg = (...args) => execFileSync('ffmpeg', ['-v', 'error', '-y', ...args]);
 
 /** Side by side with a gap, scaled down to `width`. */
-function compose(inputs, out, { theme = 'dark', width = 1800, gap = 32 } = {}) {
+function compose(inputs, out, { theme = 'light', width = 1800, gap = 32 } = {}) {
   const n = inputs.length;
   const pads = inputs.map((_, i) => (i < n - 1 ? `[${i}]pad=iw+${gap}:ih:0:0:color=${BG[theme]}[p${i}]` : `[${i}]copy[p${i}]`));
   const chain = `${pads.join(';')};${inputs.map((_, i) => `[p${i}]`).join('')}hstack=inputs=${n},scale='min(${width},iw)':-2:flags=lanczos`;
@@ -97,14 +97,14 @@ function gif(video, out, { skip, duration, box, width = 520, fps = 10, colors = 
     '[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle', '-loop', '0', out);
 }
 
-async function record(fn, { query, out, width = 760, height = 800, crop, ...gifOpts }) {
+async function record(fn, { query, out, width = 760, height = 800, crop, gifWidth, ...gifOpts }) {
   const s = await open({ query, width, height, still: false, video: true });
   await fn(s);
   const duration = (Date.now() - s.started) / 1000 - s.skip;
   const box = crop ? await crop(s) : { x: 12, y: 12, width: width - 24, height: height - 24 };
   const video = await s.page.video().path();
   await s.ctx.close();
-  gif(video, out, { skip: s.skip, duration, box, ...gifOpts });
+  gif(video, out, { skip: s.skip, duration, box, ...(gifWidth ? { width: gifWidth } : {}), ...gifOpts });
 }
 
 const viewport = (card) => card.locator('.viewport');
@@ -119,27 +119,64 @@ const ASSETS = {
     await ctx.close();
   },
 
-  // Hero GIF: one card through live 3D, heatmap, zone editing and replay.
+  // Hero GIF, two cards side by side. Left: an LD6004 in live 3D and its heatmap in plan. Right: an LD2450 in a
+  // 3D model of the room: orbit, zoom, the sensor's and the plan views, then the same room in the futuristic style.
+  // Zone editing and replay have their own GIFs further down.
   async demo() {
-    await record(async ({ page, card }) => {
-      await wait(3000);
-      await tap(page, card.locator('[data-mode="heatmap"]'));
-      await wait(1200);
-      await tap(page, card.locator('[data-view="plan"]'));
-      await wait(3000);
-      await tap(page, card.locator('[data-mode="live"]'));
-      await tap(page, card.locator('[data-act="edit"]'));
-      await wait(1300);
-      await drag(page, await floorPoint(card, 0.6, 2.6), await floorPoint(card, 1.3, 3.0));
-      await wait(2000);
-      await tap(page, card.locator('[data-act="done"]'));
+    await record(async ({ page }) => {
+      const [left, right] = [0, 1].map((i) => page.locator('mmwave-3d-card').nth(i));
+      await page.waitForFunction(() => window.demo.cards[1]._scene?.modelBox);
+      await wait(1900);
+      const v = await viewport(right).boundingBox();
+      await drag(page, { x: v.x + v.width * 0.6, y: v.y + v.height * 0.55 }, { x: v.x + v.width * 0.38, y: v.y + v.height * 0.45 }, 50);
+      await wait(500);
+      await tap(page, right.locator('[data-zoom="in"]'));
+      await wait(500);
+      await tap(page, right.locator('[data-zoom="in"]'));
       await wait(1000);
-      await tap(page, card.locator('[data-mode="replay"]'));
+      await tap(page, right.locator('[data-zoom="out"]'));
+      await wait(500);
+      await tap(page, left.locator('[data-mode="heatmap"]'));
+      await wait(700);
+      await tap(page, left.locator('[data-view="plan"]'));
+      await wait(1400);
+      await tap(page, right.locator('[data-view="sensor"]'));
+      await wait(1800);
+      await tap(page, right.locator('[data-view="plan"]'));
+      await wait(1400);
+      await tap(page, left.locator('[data-mode="live"]'));
+      await tap(page, left.locator('[data-view="3d"]'));
+      await tap(page, right.locator('[data-view="3d"]'));
       await wait(1200);
-      await tap(page, card.locator('[data-speed="60"]'));
-      await tap(page, card.locator('[data-act="play"]'));
-      await wait(3000);
-    }, { query: 't=43.5&cards=ld6004&cursor=1', out: 'docs/demo.gif' });
+      // The same room as a hologram: what `style: futuristic` in the card's YAML gives.
+      await right.evaluate((el) => {
+        const m = el._config.model;
+        el.setConfig({
+          type: 'custom:mmwave-3d-card', device: 'ld2450', prefix: 'kin_estudio_piscina', title: 'Living room · futuristic',
+          model: { url: m.url, style: 'futuristic', sensor: { position: m.sensor.position, heading: m.sensor.heading } },
+        });
+      });
+      await page.waitForFunction(() => window.demo.cards[1]._scene?.holo);
+      await wait(1600);
+      const h = await viewport(right).boundingBox();
+      await drag(page, { x: h.x + h.width * 0.35, y: h.y + h.height * 0.5 }, { x: h.x + h.width * 0.6, y: h.y + h.height * 0.42 }, 50);
+      await wait(1100);
+      await tap(page, right.locator('[data-view="plan"]'));
+      await wait(1900);
+      await tap(page, right.locator('[data-view="sensor"]'));
+      await wait(1900);
+    }, {
+      query: 't=43.5&cards=ld6004,model&two=1&cursor=1', out: 'docs/demo.gif', width: 1500, height: 900,
+      gifWidth: 1000, fps: 8, colors: 72,
+      // Both cards from their title down to just under the view, where the replay and heatmap panel appears.
+      crop: async ({ page }) => {
+        const cards = page.locator('mmwave-3d-card');
+        const a = await cards.nth(0).boundingBox(), b = await cards.nth(1).boundingBox();
+        const va = await viewport(cards.nth(0)).boundingBox(), vb = await viewport(cards.nth(1)).boundingBox();
+        const top = Math.min(a.y, b.y), bottom = Math.max(va.y + va.height, vb.y + vb.height) + 66;
+        return { x: a.x, y: top, width: b.x + b.width - a.x, height: bottom - top };
+      },
+    });
   },
 
   // The same card in its three views.
@@ -170,9 +207,9 @@ const ASSETS = {
     compose(files, 'docs/images/posture.png', { width: 1600 });
   },
 
-  // A room with walls, a door and furniture, in 3D and in plan, light theme.
+  // A room with walls, a door and furniture, in 3D and in plan.
   async room() {
-    const { ctx, card } = await open({ query: 't=48&frozen=1&cards=ld6004', theme: 'light' });
+    const { ctx, card } = await open({ query: 't=48&frozen=1&cards=ld6004' });
     const files = [];
     for (const v of ['3d', 'plan']) {
       await card.locator(`[data-view="${v}"]`).click();
@@ -182,7 +219,7 @@ const ASSETS = {
       files.push(f);
     }
     await ctx.close();
-    compose(files, 'docs/images/room.png', { theme: 'light', width: 1600 });
+    compose(files, 'docs/images/room.png', { width: 1600 });
   },
 
   // A room model: the example living room textured and in the futuristic style, side by side.
@@ -276,15 +313,15 @@ const ASSETS = {
     await ctx.close();
   },
 
-  // The heatmap in plan view, dark and light.
+  // The heatmap in plan view and in 3D.
   async heatmap() {
     const files = [];
-    for (const theme of ['dark', 'light']) {
-      const { ctx, card } = await open({ query: 't=48&frozen=1&cards=ld6004&view=plan', theme });
+    for (const view of ['plan', '3d']) {
+      const { ctx, card } = await open({ query: `t=48&frozen=1&cards=ld6004&view=${view}` });
       await card.locator('[data-mode="heatmap"]').click();
       await card.locator('.heat-chip').first().waitFor();
       await wait(600);
-      const f = join(tmp, `heat-${theme}.png`);
+      const f = join(tmp, `heat-${view}.png`);
       const top = await card.boundingBox(), panel = await card.locator('.panel').boundingBox();
       await card.page().screenshot({ path: f, clip: { x: top.x, y: top.y, width: top.width, height: panel.y + panel.height - top.y } });
       files.push(f);
