@@ -68,6 +68,7 @@
   // ?theme=dark&lang=es&cards=ld2450,ld6004,ceiling,ld2410&view=plan&capture=1
   // Tests add seed=<n> (deterministic noise), t=<s> (scene time) and frozen=1 (people stop moving).
   const q = new URLSearchParams(location.search);
+  const ROOM_SENSOR = [2.85, 2.1, 0.59], ROOM_HEADING = 0;    // where the sensor is in the example model
   const ROOM = (dy) => ({
     walls: [[-3.2, 0 - dy], [3.4, 0 - dy], [3.4, 5.8 - dy], [-3.2, 5.8 - dy]],
     doors: [{ from: [3.4, 4.6 - dy], to: [3.4, 5.5 - dy] }],
@@ -77,6 +78,9 @@
       { name: 'Shelf', x: [2.9, 3.35], y: [0.4 - dy, 1.9 - dy], height: 1.8 },
     ],
   });
+  const MODEL = () => (q.has('model')
+    ? { url: q.get('model'), sensor: { position: q.get('sensor').split(',').map(Number), heading: Number(q.get('heading') ?? 0) } }
+    : { url: 'models/living-room/living-room.glb', sensor: { position: ROOM_SENSOR, heading: ROOM_HEADING } });
   const CARDS = {
     ld2450: { device: 'ld2450', prefix: 'kin_estudio_piscina', title: 'Study · HLK-LD2450', mount_height: 1.5 },
     ld6004: { device: 'ld6004', prefix: 'radar_ld6004', title: 'Study · HLK-LD6004', mount_height: 1.5,
@@ -84,6 +88,10 @@
     ld2410: { device: 'ld2410', prefix: 'esp32_pasillo', title: 'Hallway · HLK-LD2410', mount_height: 1.5 },
     ceiling: { device: 'ld6004', prefix: 'radar_techo', title: 'Study · HLK-LD6004 on the ceiling', mount_height: 2.7,
       zone_service: 'esphome.hlk_techo_set_detection_zone', zone_names: ['Desk', 'Reading', 'Sofa'], room: ROOM(3) },
+    // A room model: the example living room, rebuilt from four photos (see demo/models/living-room/). A private model in demo/private/
+    // (git-ignored) can stand in for it: ?model=private/room.glb&sensor=x,y,z&heading=deg
+    model: { device: 'ld2450', prefix: 'kin_estudio_piscina', title: 'Living room · 3D model', model: MODEL() },
+    holo: { device: 'ld2450', prefix: 'kin_estudio_piscina', title: 'Living room · futuristic', model: { ...MODEL(), style: 'futuristic' } },
   };
   let dark = q.get('theme') === 'dark';
   let lang = q.get('lang') ?? 'en';

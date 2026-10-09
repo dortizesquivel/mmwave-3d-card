@@ -1,6 +1,7 @@
 const STRINGS = {
   es: {
     view3d: '3D', plan: 'Planta', sensorView: 'Sensor', trail: 'Rastro', zones: 'Zonas',
+    zoomIn: 'Acercar', zoomOut: 'Alejar',
     live: 'En vivo', replay: 'Repetición', heatmap: 'Mapa de calor',
     target: 'Objetivo', position: 'Posición (m)', distance: 'Distancia', speed: 'Velocidad', height: 'Altura', posture: 'Postura', zone: 'Zona',
     nobody: 'Nadie', onePerson: '1 persona', people: (n) => `${n} personas`,
@@ -9,6 +10,7 @@ const STRINGS = {
     kindN: { filter: (n) => `Excluida ${n}`, interference: (n) => `Interferencia ${n}`, dwell: (n) => `Permanencia ${n}` },
     missing: (id) => `No encuentro ${id}. Revisa "prefix" o "entities" en la configuración.`,
     noWebgl: 'Este navegador no puede mostrar WebGL.',
+    modelError: (url) => `No puedo cargar el modelo de la habitación (${url}).`,
     // Zone editing
     editZones: 'Editar zonas', done: 'Listo', addZone: 'Añadir zona', deleteZone: 'Borrar zona', cancel: 'Cancelar',
     newZone: 'Zona nueva', zoneKind: 'Tipo de zona', full: '(llena)',
@@ -40,6 +42,7 @@ const STRINGS = {
   },
   en: {
     view3d: '3D', plan: 'Plan', sensorView: 'Sensor', trail: 'Trail', zones: 'Zones',
+    zoomIn: 'Zoom in', zoomOut: 'Zoom out',
     live: 'Live', replay: 'Replay', heatmap: 'Heatmap',
     target: 'Target', position: 'Position (m)', distance: 'Distance', speed: 'Speed', height: 'Height', posture: 'Posture', zone: 'Zone',
     nobody: 'Nobody', onePerson: '1 person', people: (n) => `${n} people`,
@@ -48,6 +51,7 @@ const STRINGS = {
     kindN: { filter: (n) => `Excluded ${n}`, interference: (n) => `Interference ${n}`, dwell: (n) => `Dwell ${n}` },
     missing: (id) => `Cannot find ${id}. Check "prefix" or "entities" in the card config.`,
     noWebgl: 'This browser cannot display WebGL.',
+    modelError: (url) => `Cannot load the room model (${url}).`,
     editZones: 'Edit zones', done: 'Done', addZone: 'Add zone', deleteZone: 'Delete zone', cancel: 'Cancel',
     newZone: 'New zone', zoneKind: 'Zone kind', full: '(full)',
     kindLabel: { detection: 'Detection', interference: 'Interference', dwell: 'Dwell', filter: 'Filter' },

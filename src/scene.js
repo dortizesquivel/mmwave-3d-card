@@ -1,14 +1,16 @@
 import {
-  BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, CapsuleGeometry, CircleGeometry, Color, CylinderGeometry,
-  DataTexture, DirectionalLight, DoubleSide, EdgesGeometry, Fog, Group, HemisphereLight, Line, LinearFilter, LineBasicMaterial,
-  LineDashedMaterial, LineSegments, Mesh, MeshBasicMaterial, MeshStandardMaterial, PCFShadowMap, PerspectiveCamera, Plane,
+  AdditiveBlending, Box3, BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, CapsuleGeometry, CircleGeometry, Color, CylinderGeometry,
+  DataTexture, DirectionalLight, DoubleSide, EdgesGeometry, Fog, FrontSide, Group, HemisphereLight, Line, LinearFilter, LineBasicMaterial,
+  LineDashedMaterial, LineSegments, Mesh, MeshBasicMaterial, MeshStandardMaterial, NormalBlending, PCFShadowMap, PerspectiveCamera, Plane,
   PlaneGeometry, Raycaster, RepeatWrapping, RGBAFormat, RingGeometry, Scene, ShadowMaterial, Shape, ShapeGeometry,
   ShaderMaterial, SphereGeometry, SRGBColorSpace, TOUCH, Vector2, Vector3, WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { combine } from './heatmap.js';
-import { mix } from './theme.js';
+import { cssColor, mix } from './theme.js';
+import { modelPlacement } from './model.js';
 
 // The scene is in metres with the sensor at the origin, `h` m above the floor. Radar → world:
 // x (positive to the sensor's right) → -X, y (forward) → +Z, height → +Y.
@@ -17,7 +19,9 @@ const V = (x, y, z) => new Vector3(x, y, z);
 const TRAIL_HZ = 10;
 const ZONE_HEIGHT = 1.0;      // drawn height for zones without Z limits
 const BASE_FOV = 42;
+const MIN_FOV = 15, MAX_FOV = 110;    // how far the zoom buttons narrow or widen the sensor view's lens
 const MIN_ZONE = 0.2;         // edited zones stay at least 20 cm wide
+const MODEL_DROP = 0.004;     // a room model's floor sits just under the coverage and the people's rings
 
 // Figure per posture. Lying is the standing figure turned 90° onto the floor.
 const POSES = {
@@ -73,6 +77,64 @@ const beamMaterial = (uniforms) => new ShaderMaterial({
   }).map(([k, v]) => [k, { value: v }])),
   transparent: true, depthWrite: false, side: DoubleSide,
 });
+// A room model in the futuristic style: translucent surfaces that glow towards their silhouette, a 50 cm grid on
+// what faces up, and the radar's scan wave lighting up whatever it passes in the sensor's colour (`wave`: its
+// radius on the floor, around the sensor). The edges share the wave with a plain line shader.
+const HOLO_VERTEX = `
+  varying vec3 vW, vN;
+  void main() {
+    vec4 w = modelMatrix * vec4(position, 1.0);
+    vW = w.xyz;
+    vN = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * w;
+  }`;
+const HOLO_WAVE = `
+  uniform vec3 scanColor;
+  uniform float wave, waveOn;
+  float scan(vec3 p) { float d = length(p.xz) - wave; return waveOn * exp(-d * d / 0.05); }`;
+const HOLO_SURFACE = {
+  vertexShader: HOLO_VERTEX,
+  fragmentShader: `
+    uniform vec3 color, base;
+    uniform float opacity;
+    varying vec3 vW, vN;
+    ${HOLO_WAVE}
+    void main() {
+      float rim = pow(1.0 - abs(dot(normalize(vN), normalize(cameraPosition - vW))), 2.0);
+      float a = 0.06 + 0.34 * rim;
+      vec3 c = mix(base, color, 0.3 + 0.7 * rim);
+      if (vN.y > 0.9) {
+        vec2 q = vW.xz / 0.5, g = abs(fract(q - 0.5) - 0.5) / fwidth(q);
+        float line = 1.0 - min(min(g.x, g.y), 1.0);
+        a += 0.22 * line;
+        c = mix(c, color, line);
+      }
+      float w = scan(vW);
+      gl_FragColor = vec4(mix(c, scanColor, w), (a + 0.3 * w) * opacity);
+      #include <colorspace_fragment>
+    }`,
+};
+const HOLO_EDGE = {
+  vertexShader: `
+    varying vec3 vW;
+    void main() {
+      vec4 w = modelMatrix * vec4(position, 1.0);
+      vW = w.xyz;
+      gl_Position = projectionMatrix * viewMatrix * w;
+    }`,
+  fragmentShader: `
+    uniform vec3 color;
+    uniform float opacity;
+    varying vec3 vW;
+    ${HOLO_WAVE}
+    void main() {
+      float w = scan(vW);
+      gl_FragColor = vec4(mix(color, scanColor, w), (0.5 + 0.5 * w) * opacity);
+      #include <colorspace_fragment>
+    }`,
+};
+const HOLO_EDGE_ANGLE = 28;   // degrees between faces for an edge to be drawn; curved surfaces stay clean
+
 const SHELL_LAYERS = 6;       // a detection in 3D: this many shells across its gate…
 const SHELL_GAIN = 0.45;      // …each one fainter than the floor band, as they add up
 const RIPPLE_SPEED = 0.6;     // m/s the crests travel
@@ -125,12 +187,18 @@ export class RadarScene {
     this.arcs = null;
     this.vol = null;            // 1D sensors in 3D: the beam's volume, its scan wave and the detection shells
     this.zoneGroup = new Group();
-    this.scene.add(this.staticGroup, this.roomGroup, this.heatGroup, this.zoneGroup, this.rangeGroup);
+    this.modelGroup = new Group();      // a 3D model of the room, placed so the sensor sits at the origin
+    this.scene.add(this.staticGroup, this.roomGroup, this.modelGroup, this.heatGroup, this.zoneGroup, this.rangeGroup);
     this.zoneObjs = [];
     this.zoneSig = '';
     this.lastZones = { zones: [], nameFor: () => '', visible: true, canEdit: () => false };
     this.room = null;
     this.roomSig = '';
+    this.model = null;
+    this.modelSig = '';
+    this.modelBox = null;        // world bounds of the loaded model
+    this.holo = null;            // shared uniforms of the futuristic style, while a model uses it
+    this.onModelError = null;    // (error) => void
 
     // Tap to pick, drag to edit zones. Callbacks are set by the card.
     this.onPick = null;          // ({ kind: 'target' | 'zone', index }) => void
@@ -211,6 +279,7 @@ export class RadarScene {
     this.zoneSig = '';
     this._refreshZones();
     if (this.ranges) { this.rangeSig = ''; this.setRanges(this.ranges, this.rangeLabels); }
+    this._holoTheme();
   }
 
   /** room: normalised `room` config with x already in the display frame, or null. */
@@ -225,6 +294,92 @@ export class RadarScene {
       this._buildRoom();
       this.setView(this.view, true);
       if (this.ranges) this.setRanges(this.ranges, this.rangeLabels);     // the beam is cut at the room's ceiling
+    }
+  }
+
+  /** model: normalised `model` config, or null. The file is fetched once per URL and parsed again when needed. */
+  setModel(model) {
+    const sig = JSON.stringify(model);
+    if (sig === this.modelSig) return;
+    this.modelSig = sig;
+    this.model = model;
+    this.modelBox = null;
+    this.holo = null;
+    clearGroup(this.modelGroup);
+    this.dirty = true;
+    this._modelChanged();
+    if (!model) return;
+    loadModel(model.url).then((root) => {
+      if (this.modelSig !== sig || this.disposed) { clearGroup(root); return; }
+      this._placeModel(root, model);
+      this._modelChanged();
+    }).catch((err) => {
+      if (this.modelSig === sig) this.onModelError?.(err);
+    });
+  }
+
+  _placeModel(root, model) {
+    const t = modelPlacement(model);
+    const norm = new Group(), shift = new Group();
+    norm.rotation.x = t.upRotX;
+    norm.scale.setScalar(t.scale);
+    shift.position.fromArray(t.offset);
+    norm.add(root);
+    shift.add(norm);
+    this.modelGroup.add(shift);
+    this.modelGroup.rotation.y = t.rotY;
+    this.modelGroup.position.set(0, t.lift - MODEL_DROP, 0);
+    if (model.style === 'futuristic') this._holoModel(root, model.opacity);
+    else {
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = Array.isArray(o.material) ? o.material.map((m) => modelMaterial(m, model.opacity)) : modelMaterial(o.material, model.opacity);
+      });
+    }
+    root.traverse((o) => { if (o.isMesh) o.castShadow = o.receiveShadow = false; });
+    this.modelGroup.updateMatrixWorld(true);
+    this.modelBox = new Box3().setFromObject(this.modelGroup);
+  }
+
+  /** Futuristic style: the model's own materials and textures give way to one hologram material and glowing edges. */
+  _holoModel(root, opacity) {
+    const u = {
+      color: { value: new Color() }, base: { value: new Color() }, scanColor: { value: new Color() },
+      opacity: { value: opacity }, wave: { value: 0 }, waveOn: { value: 0 },
+    };
+    const common = { uniforms: u, transparent: true, depthWrite: false };
+    const surface = new ShaderMaterial({ ...HOLO_SURFACE, ...common, side: FrontSide });
+    const edge = new ShaderMaterial({ ...HOLO_EDGE, ...common });
+    const meshes = [];
+    root.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    for (const o of meshes) {
+      [].concat(o.material).forEach(disposeMaterial);
+      o.material = surface;
+      const lines = new LineSegments(new EdgesGeometry(o.geometry, HOLO_EDGE_ANGLE), edge);
+      lines.name = `${o.name}_edges`;
+      o.add(lines);
+    }
+    this.holo = { uniforms: u, materials: [surface, edge] };
+    this._holoTheme();
+  }
+
+  _holoTheme() {
+    if (!this.holo || !this.theme) return;
+    const th = this.theme, u = this.holo.uniforms;
+    const color = cssColor(this.model?.color, th.model, th.bg);
+    // Light adds up to a glow on a dark background; on a light one it would wash out, so it is blended normally.
+    u.color.value.set(color);
+    u.base.value.set(mix(th.bg, color, th.dark ? 0.25 : 0.45));
+    u.scanColor.value.set(th.accent);
+    for (const m of this.holo.materials) m.blending = th.dark ? AdditiveBlending : NormalBlending;
+    this.dirty = true;
+  }
+
+  _modelChanged() {
+    this.dirty = true;
+    if (this.layout && this.theme) {
+      this._buildStatic();
+      this.setView(this.view, true);
     }
   }
 
@@ -784,6 +939,36 @@ export class RadarScene {
     this.controls.enabled = false;
   }
 
+  /**
+   * Zoom in (factor > 1) or out (factor < 1), for the buttons: the 3D and plan views move towards what the camera
+   * looks at, within the orbit limits; the sensor view stays at the sensor and narrows or widens its lens.
+   */
+  zoom(factor) {
+    if (!this.layout) return;
+    this.dirty = true;
+    const target = this.controls.target.clone();
+    let pos = this.camera.position.clone(), fov = this.camera.fov;
+    if (this.view === 'sensor') {
+      fov = Math.min(MAX_FOV, Math.max(MIN_FOV, fov / factor));
+    } else {
+      const offset = pos.clone().sub(target);
+      const d = Math.min(this.controls.maxDistance, Math.max(this.controls.minDistance, offset.length() / factor));
+      pos = target.clone().add(offset.setLength(d));
+    }
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      this.camera.position.copy(pos);
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+      this.controls.update();
+      return;
+    }
+    this.tween = {
+      t0: performance.now(), dur: 250, pos, target, fov,
+      fromPos: this.camera.position.clone(), fromTarget: target.clone(), fromFov: this.camera.fov,
+    };
+    this.controls.enabled = false;
+  }
+
   /** Coverage geometry plus world bounds of everything worth framing (coverage and room). */
   _extent() {
     const { mount, h, range } = this.layout;
@@ -802,6 +987,10 @@ export class RadarScene {
     for (const [x, y] of pts) {
       b.minX = Math.min(b.minX, -x); b.maxX = Math.max(b.maxX, -x);
       b.minZ = Math.min(b.minZ, y); b.maxZ = Math.max(b.maxZ, y);
+    }
+    if (this.modelBox && !this.modelBox.isEmpty()) {
+      b.minX = Math.min(b.minX, this.modelBox.min.x); b.maxX = Math.max(b.maxX, this.modelBox.max.x);
+      b.minZ = Math.min(b.minZ, this.modelBox.min.z); b.maxZ = Math.max(b.maxZ, this.modelBox.max.z);
     }
     e.xSpan = b.maxX - b.minX;
     e.zSpan = b.maxZ - b.minZ;
@@ -853,6 +1042,7 @@ export class RadarScene {
   }
 
   dispose() {
+    this.disposed = true;
     this.stop();
     this.ro.disconnect();
     this.container.removeEventListener('wheel', this._onWheel, { capture: true });
@@ -964,7 +1154,8 @@ export class RadarScene {
     catcher.rotation.x = -Math.PI / 2;
     catcher.position.copy(e.center).setY(0.001);
     catcher.receiveShadow = true;
-    g.add(ground, catcher);
+    g.add(catcher);
+    if (!this.model) g.add(ground);         // a model of the room brings its own floor
 
     // 1 m grid
     const b = e.bounds;
@@ -972,7 +1163,7 @@ export class RadarScene {
     const grid = [];
     for (let x = x0; x <= x1; x++) grid.push(V(x, 0.002, z0), V(x, 0.002, z1));
     for (let z = z0; z <= z1; z++) grid.push(V(x0, 0.002, z), V(x1, 0.002, z));
-    g.add(segments(grid, gridCol, 1));
+    if (!this.model) g.add(segments(grid, gridCol, 1));
 
     const sensorEye = V(0, h, 0);
     const housing = new Mesh(new BoxGeometry(0.18, 0.11, 0.05), new MeshStandardMaterial({ color: mix(th.bg, th.fg, 0.25), roughness: 0.6 }));
@@ -1006,7 +1197,7 @@ export class RadarScene {
       sensor.rotation.x = this._tilt();
       housing.position.z = 0.025;
       lens.position.z = 0.051;
-      if (!this.room?.walls.length) {     // without a room, a hint of the wall the sensor hangs on
+      if (!this.room?.walls.length && !this.model) {     // without a room, a hint of the wall the sensor hangs on
         const wallW = rx + 0.5, wallH = Math.max(2.6, h + 0.4);
         g.add(line([V(-wallW, 0, 0), V(-wallW, wallH, 0), V(wallW, wallH, 0), V(wallW, 0, 0), V(-wallW, 0, 0)], th.fg2, 0.25));
       }
@@ -1265,6 +1456,10 @@ export class RadarScene {
       this.pulse.visible = !vol;
       this.pulse.scale.set(0.3 + s * (r - 0.3), 0.3 + s * (r - 0.3), 1);
       this.pulse.material.opacity = reduced ? 0 : 0.14 * (1 - s);     // a hint of the scan, not a feature
+      if (this.holo) {
+        this.holo.uniforms.wave.value = 0.3 + s * (r - 0.3);
+        this.holo.uniforms.waveOn.value = reduced ? 0 : 1 - s;
+      }
       if (this.vol) {
         this.vol.group.visible = vol;
         const p = this.vol.pulse;
@@ -1391,6 +1586,33 @@ const roundRect = (r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k
 function distToLine(P, A, dir) {
   const ap = P.clone().sub(A);
   return ap.sub(dir.clone().multiplyScalar(ap.dot(dir))).length();
+}
+
+// Model files, fetched once per URL; each scene parses its own copy (a scene is rebuilt when the card comes back on screen).
+const modelFiles = new Map();
+function loadModel(url) {
+  if (!modelFiles.has(url)) {
+    modelFiles.set(url, fetch(url).then((r) => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return r.arrayBuffer();
+    }));
+    modelFiles.get(url).catch(() => modelFiles.delete(url));
+  }
+  const base = url.slice(0, url.lastIndexOf('/') + 1);
+  return modelFiles.get(url).then((buf) => new GLTFLoader().parseAsync(buf, base)).then((gltf) => gltf.scene);
+}
+
+// Materials stay as the file has them: an unlit one (photo textures, which already carry their light) stays unlit,
+// a PBR one takes the scene's lights. Single-sided, so walls whose inside faces away from the camera vanish and
+// the room reads like a doll's house.
+function modelMaterial(m, opacity) {
+  m.side = FrontSide;
+  if (opacity < 1) {
+    m.transparent = true;
+    m.opacity *= opacity;
+    m.depthWrite = false;
+  }
+  return m;
 }
 
 function disposeMaterial(m) {

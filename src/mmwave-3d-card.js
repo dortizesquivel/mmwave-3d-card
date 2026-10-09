@@ -15,6 +15,7 @@ const SPEEDS = [1, 10, 60, 600];
 const HEAT_STEP = { 1: 1000, 6: 2000, 24: 5000 };  // ms between heatmap samples
 const HEAT_CELL = 0.2;                            // m
 const CONFIRM_TIMEOUT = 8000;                     // ms to wait for the sensor to report an edited zone
+const ZOOM_STEP = 1.4;                            // each zoom button press: 40 % closer or farther
 
 const STYLE = `
   :host { display: block; }
@@ -34,6 +35,8 @@ const STYLE = `
   .status { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; padding: 24px; text-align: center;
     color: var(--secondary-text-color); background: color-mix(in srgb, var(--card-background-color, #fff) 82%, transparent); }
   .modes { position: absolute; top: 10px; right: 10px; z-index: 2; }
+  .zoom { position: absolute; top: 10px; left: 10px; z-index: 2; flex-direction: column; }
+  .seg.zoom button { width: 32px; padding: 0; font-size: 18px; line-height: 1; }
   .toolbar { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 2; display: flex; flex-wrap: wrap;
     justify-content: space-between; gap: 8px; pointer-events: none; }
   .seg { pointer-events: auto; display: flex; gap: 2px; padding: 3px; border-radius: 8px; border: 1px solid var(--divider-color);
@@ -242,6 +245,10 @@ class MmwaveRadar3dCard extends HTMLElement {
         </div>
         <div class="viewport" style="height:${Number(c.height)}px">
           <div class="status" hidden></div>
+          <div class="seg zoom" role="group" aria-label="Zoom">
+            <button type="button" data-zoom="in" aria-label="${esc(t.zoomIn)}" title="${esc(t.zoomIn)}">+</button>
+            <button type="button" data-zoom="out" aria-label="${esc(t.zoomOut)}" title="${esc(t.zoomOut)}">−</button>
+          </div>
           <div class="seg modes" role="group" aria-label="Mode">
             ${MODES.map((m) => `<button type="button" data-mode="${m}" aria-pressed="${m === this._mode}">${esc(t[m])}</button>`).join('')}
           </div>
@@ -286,6 +293,7 @@ class MmwaveRadar3dCard extends HTMLElement {
 
     root.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => this._setView(b.dataset.view)));
     root.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => this._setMode(b.dataset.mode)));
+    root.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => this._scene?.zoom(b.dataset.zoom === 'in' ? ZOOM_STEP : 1 / ZOOM_STEP)));
     root.querySelectorAll('[data-toggle]').forEach((b) => b.addEventListener('click', () => {
       const key = b.dataset.toggle;
       this._ui[key] = !this._ui[key];
@@ -340,6 +348,10 @@ class MmwaveRadar3dCard extends HTMLElement {
     s.onZoneEdit = (zone, rect) => this._saveZone(zone, rect);
     s.onZoneSelect = (zone) => { this._selectedZone = zone; this._renderPanel(); };
     s.onZoneDraw = (rect) => this._finishAdd(rect);
+    s.onModelError = (err) => {
+      console.warn('mmwave-3d-card: model', err);
+      this._setStatus(this._t.modelError(this._config.model?.url));
+    };
     if (this._editing && this._editInfo?.supported) s.setEditMode(true);
     this._themeKey = null;
     this._sig = null;
@@ -440,6 +452,7 @@ class MmwaveRadar3dCard extends HTMLElement {
         slice: !!this._adapter.oneD,
       });
       scene.setRoom(c.room);
+      scene.setModel(c.model);
       scene.setZones(zones, {
         nameFor: (z) => (z.draft ? this._t.newZone : this._zoneName(z)),
         visible: this._ui.zones,

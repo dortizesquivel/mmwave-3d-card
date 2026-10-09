@@ -6,6 +6,8 @@ const TARGETS = {
   light: ['#2a78d6', '#eb6834', '#1baf7a'],
   dark: ['#3987e5', '#d95926', '#199e70'],
 };
+// A room model in the futuristic style: violet, apart from the sensor's accent, the people and the excluded zones.
+const MODEL = { light: '#7350d8', dark: '#a68bf5' };
 
 
 let probe;
@@ -49,5 +51,6 @@ export function readTheme(el, dark) {
     accent: cssColor(v('--primary-color'), '#03a9f4', bg),
     exclude: cssColor(v('--error-color'), '#db4437', bg),
     targets: dark ? TARGETS.dark : TARGETS.light,
+    model: dark ? MODEL.dark : MODEL.light,
   };
 }

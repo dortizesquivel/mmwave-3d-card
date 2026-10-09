@@ -1,4 +1,5 @@
 import { getAdapter } from './adapters/index.js';
+import { modelSensorHeight, normalizeModel } from './model.js';
 
 export const VIEWS = ['3d', 'plan', 'sensor'];
 const MOUNTS = ['auto', 'wall', 'ceiling'];
@@ -54,12 +55,13 @@ export function normalizeConfig(c) {
   const mount = c.mount ?? adapter.defaults.mount;
   if (!MOUNTS.includes(mount)) throw new Error(`"mount" must be one of: ${MOUNTS.join(', ')}`);
 
+  const model = normalizeModel(c.model);
   const cfg = {
     device: adapter.type,
     prefix: c.prefix ?? '',
     title: c.title ?? '',
     mount,
-    mount_height: num(c.mount_height, 1.5, 'mount_height'),
+    mount_height: num(c.mount_height, model ? modelSensorHeight(model) : 1.5, 'mount_height'),
     tilt: num(c.tilt, 0, 'tilt'),
     max_range: num(c.max_range, adapter.defaults.maxRange, 'max_range'),
     fov: num(c.fov, adapter.defaults.fov, 'fov'),
@@ -80,6 +82,7 @@ export function normalizeConfig(c) {
     allow_zone_editing: c.allow_zone_editing !== false,
     zone_service: c.zone_service ? String(c.zone_service) : null,
     room: normalizeRoom(c.room),
+    model,
     entities: c.entities ?? null,
   };
   if (cfg.zone_service && !/^esphome\.[a-z0-9_]+$/.test(cfg.zone_service)) {
