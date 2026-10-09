@@ -525,9 +525,9 @@ The people, the table and the zone chips show the chosen moment; zones themselve
 
 ### Heatmap
 
-![Time spent at each spot over the last hour, coloured by person, dark and light themes](docs/images/heatmap.png)
+![Time spent at each spot over the last hour, coloured by person, in plan and in 3D](docs/images/heatmap.png)
 
-*Time spent at each spot over the last hour, coloured by person, in the dark and light themes.*
+*Time spent at each spot over the last hour, coloured by person, in plan and in 3D.*
 
 Select **Heatmap** and a period. The card adds up how long each person was detected on each 20 cm patch of floor. Each patch takes the colour of whoever spent the most time there, the same colour as their figure, and the more time, the more solid it looks.
 

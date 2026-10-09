@@ -21,7 +21,7 @@ let browser;
 
 // ---------- helpers ----------
 
-async function open({ query, theme = 'dark', width = 760, height = 800, still = true, video = false, capture = true }) {
+async function open({ query, theme = 'light', width = 760, height = 800, still = true, video = false, capture = true }) {
   const ctx = await browser.newContext({
     viewport: { width, height },
     deviceScaleFactor: still ? 2 : 1,
@@ -82,7 +82,7 @@ function floorPoint(card, x, y) {
 const ffmpeg = (...args) => execFileSync('ffmpeg', ['-v', 'error', '-y', ...args]);
 
 /** Side by side with a gap, scaled down to `width`. */
-function compose(inputs, out, { theme = 'dark', width = 1800, gap = 32 } = {}) {
+function compose(inputs, out, { theme = 'light', width = 1800, gap = 32 } = {}) {
   const n = inputs.length;
   const pads = inputs.map((_, i) => (i < n - 1 ? `[${i}]pad=iw+${gap}:ih:0:0:color=${BG[theme]}[p${i}]` : `[${i}]copy[p${i}]`));
   const chain = `${pads.join(';')};${inputs.map((_, i) => `[p${i}]`).join('')}hstack=inputs=${n},scale='min(${width},iw)':-2:flags=lanczos`;
@@ -207,9 +207,9 @@ const ASSETS = {
     compose(files, 'docs/images/posture.png', { width: 1600 });
   },
 
-  // A room with walls, a door and furniture, in 3D and in plan, light theme.
+  // A room with walls, a door and furniture, in 3D and in plan.
   async room() {
-    const { ctx, card } = await open({ query: 't=48&frozen=1&cards=ld6004', theme: 'light' });
+    const { ctx, card } = await open({ query: 't=48&frozen=1&cards=ld6004' });
     const files = [];
     for (const v of ['3d', 'plan']) {
       await card.locator(`[data-view="${v}"]`).click();
@@ -219,7 +219,7 @@ const ASSETS = {
       files.push(f);
     }
     await ctx.close();
-    compose(files, 'docs/images/room.png', { theme: 'light', width: 1600 });
+    compose(files, 'docs/images/room.png', { width: 1600 });
   },
 
   // A room model: the example living room textured and in the futuristic style, side by side.
@@ -313,15 +313,15 @@ const ASSETS = {
     await ctx.close();
   },
 
-  // The heatmap in plan view, dark and light.
+  // The heatmap in plan view and in 3D.
   async heatmap() {
     const files = [];
-    for (const theme of ['dark', 'light']) {
-      const { ctx, card } = await open({ query: 't=48&frozen=1&cards=ld6004&view=plan', theme });
+    for (const view of ['plan', '3d']) {
+      const { ctx, card } = await open({ query: `t=48&frozen=1&cards=ld6004&view=${view}` });
       await card.locator('[data-mode="heatmap"]').click();
       await card.locator('.heat-chip').first().waitFor();
       await wait(600);
-      const f = join(tmp, `heat-${theme}.png`);
+      const f = join(tmp, `heat-${view}.png`);
       const top = await card.boundingBox(), panel = await card.locator('.panel').boundingBox();
       await card.page().screenshot({ path: f, clip: { x: top.x, y: top.y, width: top.width, height: panel.y + panel.height - top.y } });
       files.push(f);
