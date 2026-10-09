@@ -2,12 +2,15 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![GitHub release](https://img.shields.io/github/v/release/dortizesquivel/mmwave-3d-card?include_prereleases)](https://github.com/dortizesquivel/mmwave-3d-card/releases)
+[![Downloads](https://img.shields.io/github/downloads/dortizesquivel/mmwave-3d-card/mmwave-3d-card.js?displayAssetName=false&label=downloads)](https://github.com/dortizesquivel/mmwave-3d-card/releases)
 [![CI](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/ci.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/ci.yml)
 [![Validate](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/validate.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/validate.yml)
 [![CodeQL](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/codeql.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dortizesquivel/mmwave-3d-card/badge)](https://scorecard.dev/viewer/?uri=github.com/dortizesquivel/mmwave-3d-card)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15325/badge)](https://www.bestpractices.dev/projects/15325)
 [![License: MIT](https://img.shields.io/github/license/dortizesquivel/mmwave-3d-card)](LICENSE)
+
+**[Try it live](https://dortizesquivel.github.io/mmwave-3d-card/)**: the card running in your browser, with simulated people in a 3D living room.
 
 A Lovelace card that draws an mmWave presence radar in 3D: the sensor's coverage, its zones and every person it tracks, with a short trail behind each one. Built with [three.js](https://threejs.org/) and bundled into a single file, so it works without internet access.
 

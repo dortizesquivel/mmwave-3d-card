@@ -138,7 +138,11 @@
 
   const cards = (q.get('cards') ?? 'ld2450,ld6004,ceiling,ld2410').split(',').map((key) => {
     const el = document.createElement('mmwave-3d-card');
-    el.setConfig({ type: 'custom:mmwave-3d-card', ...CARDS[key], ...(q.get('view') ? { view: q.get('view') } : {}) });
+    el.setConfig({
+      type: 'custom:mmwave-3d-card', ...CARDS[key], ...(q.get('view') ? { view: q.get('view') } : {}),
+      // ?table=0 hides the table and ?height=<px> sets the view's height (the landing page embeds the card this way)
+      ...(q.get('table') === '0' ? { show_table: false } : {}), ...(q.get('height') ? { height: Number(q.get('height')) } : {}),
+    });
     el.hass = hassFor();
     document.getElementById('cards').append(el);
     return el;

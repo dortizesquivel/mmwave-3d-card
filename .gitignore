@@ -7,3 +7,4 @@ playwright-report/
 
 # Private room models and photos: never committed
 demo/private/
+_site/
