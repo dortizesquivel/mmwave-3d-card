@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildFrame, classifyPosture, detectDevices, getAdapter, resolveEntities } from '../src/adapters/index.js';
 import { parseZones } from '../src/adapters/ld6004.js';
-import { readBool } from '../src/adapters/common.js';
+import { readBool, readLength } from '../src/adapters/common.js';
 
 const st = (state, unit) => ({ state: String(state), attributes: unit ? { unit_of_measurement: unit } : {} });
 const opts = { invertX: false, zOffset: 1.5, posture: { sitting: 0.95, lying: 0.45 } };
@@ -133,6 +133,18 @@ test('parseZones keeps the zone index and ignores broken JSON', () => {
   const zones = parseZones('[{"x0":0,"x1":0,"y0":0,"y1":0,"z0":0,"z1":0},{"x0":-1,"x1":1,"y0":1,"y1":2,"z0":0,"z1":0}]');
   assert.equal(zones[0], null);
   assert.deepEqual(zones[1], { x1: -1, x2: 1, y1: 1, y2: 2, z1: null, z2: null });
+  // Values that are neither numbers nor numeric strings make the zone unreadable instead of throwing
+  // (an object whose toString isn't a function made Number() throw; found by the fuzz tests).
+  assert.deepEqual(parseZones('[{"x0":0,"x1":[],"y0":{"toString":0},"y1":"","z0":null,"z1":[]}]'), [null]);
+  assert.deepEqual(parseZones('[{"x0":"-1","x1":"1","y0":"1","y1":"2","z0":0,"z1":0}]'), [{ x1: -1, x2: 1, y1: 1, y2: 2, z1: null, z2: null }]);
+  assert.deepEqual(parseZones('[{"x0":-1e300,"x1":1,"y0":1,"y1":2,"z0":0,"z1":0}]'), [null]);    // past MAX_LENGTH
+});
+
+test('lengths past 1 km are corrupt states, not readings', () => {
+  const hass = { states: { 'sensor.x': st('-1.7976931348618509e+308', 'm'), 'sensor.y': st(999, 'm'), 'sensor.z': st(1000001, 'mm') } };
+  assert.equal(readLength(hass, 'sensor.x'), null);
+  assert.equal(readLength(hass, 'sensor.y'), 999);
+  assert.equal(readLength(hass, 'sensor.z'), null);
 });
 
 test('classifyPosture uses the configured thresholds', () => {
