@@ -26,6 +26,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Known vulnerabilities in what ships (three.js)
+        run: npm audit --omit=dev --audit-level=moderate
       - name: Unit tests, with a coverage floor
         run: npm run test:coverage
       - name: Build
