@@ -1,0 +1,31 @@
+name: Feature request
+description: Something you'd like the card to do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before you write, check the [ideas already proposed](https://github.com/dortizesquivel/mmwave-3d-card/discussions/categories/ideas) and give a 👍 to the ones you want; votes decide what comes first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The situation, in your words. For example, "I want to know when someone has been lying on the sofa for an hour".
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What the card could do
+      description: How you imagine it. A sketch or a screenshot of something similar helps.
+  - type: dropdown
+    id: sensor
+    attributes:
+      label: Your sensor
+      multiple: true
+      options: [HLK-LD2450, HLK-LD6004, HLK-LD2410 (B, C), A sensor the card doesn't support yet]
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: How you use the card, your room, other sensors you have…
