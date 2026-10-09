@@ -185,6 +185,21 @@ const ASSETS = {
     compose(files, 'docs/images/room.png', { theme: 'light', width: 1600 });
   },
 
+  // A room model: the example living room textured and in the futuristic style, side by side.
+  async model() {
+    const files = [];
+    for (const key of ['model', 'holo']) {
+      const { ctx, page, card } = await open({ query: `t=48&frozen=1&cards=${key}` });
+      await page.waitForFunction(() => window.demo.cards.every((c) => c._scene.modelBox));
+      await wait(900);
+      const f = join(tmp, `model-${key}.png`);
+      await viewport(card).screenshot({ path: f });
+      files.push(f);
+      await ctx.close();
+    }
+    compose(files, 'docs/images/model.png', { width: 1600 });
+  },
+
   // An LD2410: distance arcs, limits and the energy per gate.
   async ld2410() {
     const { ctx, card } = await open({ query: 't=45&frozen=1&cards=ld2410', width: 760 });

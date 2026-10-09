@@ -579,6 +579,72 @@ test('a room draws its walls and furniture', async ({ page }) => {
   expect(new Set(room.labels)).toEqual(new Set(['Desk', 'Shelf', 'Sofa']));
 });
 
+test('a room model loads around the sensor', async ({ page }) => {
+  const errors = await openDemo(page, 'cards=model');
+  await expect.poll(() => card(page).evaluate((el) => !!el._scene.modelBox)).toBe(true);
+  const m = await card(page).evaluate((el) => {
+    const s = el._scene, b = s.modelBox;
+    const p = s.modelGroup.getObjectByName('mmwave_sensor').getWorldPosition(new s.camera.position.constructor());
+    let meshes = 0;
+    s.modelGroup.traverse((o) => { if (o.isMesh) meshes++; });
+    return { meshes, sensor: [p.x, p.y, p.z], minY: b.min.y, spanX: b.max.x - b.min.x, spanZ: b.max.z - b.min.z, h: s.layout.h };
+  });
+  expect(m.meshes).toBeGreaterThan(20);
+  // The sensor in the model sits where the card draws the radar, (0, h, 0), with the model's floor at 0.
+  expect(Math.hypot(m.sensor[0], m.sensor[1] - m.h, m.sensor[2])).toBeLessThan(0.06);
+  expect(m.minY).toBeCloseTo(0, 1);
+  expect(Math.min(m.spanX, m.spanZ)).toBeGreaterThan(3);     // a whole room, not a stray object
+  expect(errors).toEqual([]);
+});
+
+test('the futuristic style keeps the shapes and drops the textures', async ({ page }) => {
+  const errors = await openDemo(page, 'cards=model,holo&theme=dark');
+  for (const i of [0, 1]) await expect.poll(() => card(page, i).evaluate((el) => !!el._scene.modelBox)).toBe(true);
+  const look = (i) => card(page, i).evaluate((el) => {
+    let meshes = 0, textured = 0, shader = 0, edges = 0;
+    el._scene.modelGroup.traverse((o) => {
+      if (o.isMesh) { meshes++; if (o.material.map) textured++; if (o.material.isShaderMaterial) shader++; }
+      if (o.isLineSegments) edges++;
+    });
+    const b = el._scene.modelBox;
+    return { meshes, textured, shader, edges, size: [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z].map((v) => +v.toFixed(2)) };
+  });
+  const textured = await look(0), holo = await look(1);
+  expect(textured.textured).toBeGreaterThan(0);
+  expect(holo).toMatchObject({ meshes: textured.meshes, textured: 0, shader: textured.meshes, edges: textured.meshes, size: textured.size });
+  // the scan wave sweeps through it
+  const wave = () => card(page, 1).evaluate((el) => el._scene.holo.uniforms.wave.value);
+  const w0 = await wave();
+  await expect.poll(wave).not.toBe(w0);
+  expect(errors).toEqual([]);
+});
+
+test('the zoom buttons move the camera in and out, and narrow the sensor view', async ({ page }) => {
+  await openDemo(page, 'cards=ld2450');
+  const cam = () => card(page).evaluate((el) => {
+    const s = el._scene;
+    return { d: s.camera.position.distanceTo(s.controls.target), fov: s.camera.fov, tween: !!s.tween };
+  });
+  const settle = () => expect.poll(async () => (await cam()).tween).toBe(false);
+  const start = await cam();
+  await card(page).locator('[data-zoom="in"]').click();
+  await settle();
+  const closer = await cam();
+  expect(closer.d).toBeCloseTo(start.d / 1.4, 1);
+  await card(page).locator('[data-zoom="out"]').click();
+  await settle();
+  expect((await cam()).d).toBeCloseTo(start.d, 1);
+
+  await card(page).locator('[data-view="sensor"]').click();
+  await settle();
+  const wide = await cam();
+  await card(page).locator('[data-zoom="in"]').click();
+  await settle();
+  const narrow = await cam();
+  expect(narrow.fov).toBeCloseTo(wide.fov / 1.4, 1);
+  expect(narrow.d).toBeCloseTo(wide.d, 2);            // the sensor view stays at the sensor
+});
+
 test('the visual editor changes the card', async ({ page }) => {
   await openDemo(page, 'cards=ld2450');
   await page.locator('#editor-box > summary').click();

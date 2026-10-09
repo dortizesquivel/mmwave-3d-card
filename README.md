@@ -318,6 +318,7 @@ The card is waiting for review to join HACS's default list. Until it's accepted,
 - **People with height and posture**: with the LD6004, each figure is standing, sitting or lying. [More](#people-height-and-posture)
 - **Visual editor** in the dashboard UI. [More](#visual-editor)
 - **Your room**: walls, doors and furniture, so positions read against the real space. [More](#drawing-your-room)
+- **A 3D model of your room** (glTF/GLB), textured or as a futuristic hologram, with the sensor placed in it. [More](#a-3d-model-of-your-room)
 - **Edit, draw and delete zones** on the floor, saved straight to the sensor; on the LD6004 that includes interference and dwell zones. [More](#editing-zones)
 - **Tap a person or a zone** to open its more-info dialog. [More](#opening-an-entitys-details)
 - **Replay** the last 1, 6 or 24 hours from the recorder. [More](#replay)
@@ -378,7 +379,7 @@ Switch views with the buttons at the bottom left:
 - **Plan** looks straight down, with the sensor at the bottom, as if you stood behind it.
 - **Sensor** looks out from the radar.
 
-To zoom, use Ctrl/⌘ and the mouse wheel, pinch on a trackpad, or use two fingers on a touch screen. One finger or the wheel on its own keeps scrolling the dashboard. **Trail** and **Zones**, at the bottom right, show or hide each person's trail and the zones.
+To zoom, use the **+** and **−** buttons at the top left, Ctrl/⌘ and the mouse wheel, a pinch on a trackpad, or two fingers on a touch screen. One finger or the wheel on its own keeps scrolling the dashboard. In the sensor view the buttons narrow or widen the lens instead, so the camera stays where the radar is. **Trail** and **Zones**, at the bottom right, show or hide each person's trail and the zones.
 
 ### People, height and posture
 
@@ -430,7 +431,7 @@ On the LD2450 the tilt only turns the drawing of the sensor: it measures range a
 
 *The editor next to the card it edits. This capture comes from the demo, which uses the card's own fallback form; inside Home Assistant the same fields use HA's form controls.*
 
-The editor covers the sensor and its prefix (with the sensors it finds on your system), mounting, range and opening, the initial view, zone names, what to show, and, for the LD6004, posture thresholds and the zone service. The room and single-entity overrides stay in YAML: open the code editor for those.
+The editor covers the sensor and its prefix (with the sensors it finds on your system), mounting, range and opening, the initial view, zone names, what to show, and, for the LD6004, posture thresholds and the zone service. The room, the room model and single-entity overrides stay in YAML: open the code editor for those.
 
 ### Drawing your room
 
@@ -453,6 +454,31 @@ room:
 ```
 
 A quick way to get the numbers: stand in each corner the radar can see for a few seconds and read your position in the card's table.
+
+### A 3D model of your room
+
+![The example living room as a textured model and in the futuristic style](docs/images/model.png)
+
+*The example living room in the demo, textured (left) and in the futuristic style (right). It was rebuilt from [four photos](demo/models/living-room/photos/): the cameras fitted to the photos' lines, the furniture modelled to match, and the photos projected back onto the surfaces as textures.*
+
+Instead of drawing walls and boxes, load a 3D model of the room (glTF or GLB) and tell the card where the sensor is in it. The card moves and turns the model so that point sits on the radar, then draws the people, the zones and the coverage inside it. From outside it reads like a doll's house: the ceiling and the walls between you and the room aren't drawn, as long as the model's walls are single-sided, like a scan's.
+
+```yaml
+model:
+  url: /local/rooms/living-room-7f3c.glb
+  sensor:
+    position: [3.6, 2.28, 5.77]   # where the sensor is in the model: x, height, z (metres)
+    heading: 180                  # which way it faces: 0 = the model's +z, 90 = +x, 180 = -z
+  style: futuristic               # or textured, the default
+```
+
+- **Styles.** `textured` draws the model as the file has it: photo textures stay as they are, PBR materials take the card's light. `futuristic` keeps the shapes and draws them as a hologram: translucent surfaces, glowing edges and a 50 cm grid on the floor, in violet (change it with `color`), and the radar's scan wave sweeps through the room in the sensor's colour.
+- **Mount height.** Without `mount_height`, the card takes it from the sensor's height in the model.
+- **Make one from your photos.** [`prompt.md`](demo/models/living-room/prompt.md) is a prompt for an AI coding agent such as Claude Code that turns two to four photos of your room into a model for the card. It fits the cameras, models the room and the furniture, projects the photos back as textures and gives you the `model:` config. It's how the demo's living room was made.
+- **Other ways to get a model.** A phone scanning app that exports GLB (Polycam, Scaniverse, 3d Scanner App…), or Blender, which exports glTF 2.0 and converts OBJ and FBX files. If the file is in centimetres set `units: cm`; if its height axis is z, set `up: z`.
+- **Keep it light.** Wall tablets struggle with big scans. Aim for under 10 MB: `npx @gltf-transform/cli optimize in.glb out.glb --texture-size 1024` shrinks most of them.
+- **Finding the position.** In Blender, put the 3D cursor on the sensor and read its location: the card's x is Blender's X, the height is Blender's Z and z is minus Blender's Y.
+- **Where to put the file.** Copy it to `/config/www/` and use `/local/…` as the URL. Files there are served **without logging in**: anyone who can reach your Home Assistant and guesses the name can download them, so give a scan of your home a name nobody would guess.
 
 ### Editing zones
 
@@ -520,7 +546,7 @@ T1, T2 and T3 are the radar's tracking slots, not identities: when people come a
 | `prefix` | string | **required** ¹ | The part of the entity ids before `_target_…`. For `sensor.kin_estudio_piscina_target_1_x` it is `kin_estudio_piscina`. |
 | `title` | string | sensor model | Card title |
 | `mount` | string | `wall` (LD2450), `auto` (LD6004) | `wall`, `ceiling` or `auto`. `auto` reads the LD6004 *Install Method* select (`Side`/`Top`) and falls back to `wall`. |
-| `mount_height` | number | `1.5` | Sensor height above the floor, in metres |
+| `mount_height` | number | `1.5` | Sensor height above the floor, in metres. With `model`, its height in the model |
 | `tilt` | number | `0` | Wall sensors: how far the sensor points down, in degrees below the horizontal (0 = level, 90 = straight down). Turns the drawing of the sensor and, on the LD2410, its whole beam. [More](#tilted-sensors) |
 | `max_range` | number | `6` | Maximum range drawn, in metres |
 | `fov` | number | `120` | Opening angle, in degrees |
@@ -537,6 +563,15 @@ T1, T2 and T3 are the radar's tracking slots, not identities: when people come a
 | `show_interference` | boolean | `true` | Show the zones the radar ignores: LD6004 interference zones and LD2450 *Filter* zones |
 | `zone_names` | list | `Zone 1`, `Zone 2`… | Names for the detection zones, in order |
 | `room` | object | — | Walls, doors and furniture to draw, see [Drawing your room](#drawing-your-room) |
+| `model.url` | string | — | A glTF/GLB model of the room, see [A 3D model of your room](#a-3d-model-of-your-room) |
+| `model.sensor.position` | list | **required** with `model` | Where the sensor is in the model, `[x, height, z]` in metres |
+| `model.sensor.heading` | number | `0` | Which way the sensor faces, in degrees around the vertical: `0` = the model's +z, `90` = +x |
+| `model.style` | string | `textured` | `textured` (as in the file) or `futuristic` (a hologram of its shapes) |
+| `model.color` | string | violet | Colour of the futuristic style, any CSS colour |
+| `model.units` | string | `m` | The file's units: `m`, `cm`, `mm`, `in` or `ft` |
+| `model.up` | string | `y` | The file's height axis: `y` (glTF) or `z` |
+| `model.floor` | number | `0` | Height of the floor in the model, in metres |
+| `model.opacity` | number | `1` | Draws the model translucent, from `0` to `1` |
 | `allow_zone_editing` | boolean | `true` | Show the *Edit zones* button (it only appears for admin users) |
 | `zone_service` | string | found automatically | LD6004 only: one of the sensor's zone services, e.g. `esphome.hlk_ld6004_set_detection_zone`; the card finds the interference and dwell services from it. Needed when there is more than one LD6004. |
 | `entities.targets` | list | — | Replaces single entities, per target: `[{ x, y, z, speed }, …]` |
@@ -721,4 +756,4 @@ It runs the tests, bumps the version in `package.json`, rebuilds `dist/`, adds t
 
 ## License
 
-[MIT](LICENSE). The bundled three.js is also MIT.
+[MIT](LICENSE). The bundled three.js is also MIT. The example living room in `demo/models/living-room/` is textured from synthetic photos made for it and CC0 materials; see its [credits](demo/models/living-room/CREDITS.md).
