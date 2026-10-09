@@ -709,7 +709,7 @@ Details, and how to report a vulnerability privately, are in [SECURITY.md](SECUR
 
 ```bash
 npm ci
-npm test          # unit tests (node:test): adapters, config, editor, history, heatmap, texts
+npm test          # unit tests (node:test): adapters, config, editor, history, heatmap, texts, model, and fuzzing with fast-check
 npm run test:coverage   # the same, failing below 85 % of lines and branches or 90 % of functions
 npm run build     # bundles src/ and three.js into dist/mmwave-3d-card.js
 npm run watch     # rebuilds on change, unminified with source maps

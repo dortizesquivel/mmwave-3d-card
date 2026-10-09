@@ -12,32 +12,34 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   playwright:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write        # commit the new baselines (with the deploy key)
     env:
       UPDATE: ${{ inputs.update_screenshots }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # main is protected: the new baselines go in with the deploy key, the ruleset's only bypass.
           ssh-key: ${{ secrets.DEPLOY_KEY }}
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - run: node_modules/.bin/playwright install --with-deps chromium
 
       - name: Run browser tests
         run: |
           if [ "$UPDATE" = "true" ]; then
-            npx playwright test --update-snapshots
+            node_modules/.bin/playwright test --update-snapshots
           else
-            npx playwright test
+            node_modules/.bin/playwright test
           fi
 
       - name: Commit updated baselines
@@ -53,7 +55,7 @@ jobs:
             git push origin HEAD:main
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         if: failure()
         with:
           name: playwright-report
