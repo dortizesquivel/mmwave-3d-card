@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.0 - 2026-10-09
+
+- Landing page on GitHub Pages, with the live demo in the hero (#9) (45f6b8d)
+- README: the hero GIF shows a room model next to the LD6004 (#7) (e4d8b12)
+- Scorecard: read-only tokens, pinned actions, signed release assets, fuzzing and a fuller security policy (#8) (c07a8de)
+- Security: CodeQL, OpenSSF Scorecard, npm audit, signed release provenance and SECURITY.md (#6) (3656785)
+- Room models: a 3D model of the room, a futuristic style and zoom buttons (#5) (2786a8d)
+- Test: replay finds quiet stretches on the LD2450 and the LD6004 too (#4) (78239bf)
+
 ## v0.7.0 - 2026-10-07
 
 - Replay: skip quiet time, an activity strip and ×600 (#3) (515f662)
