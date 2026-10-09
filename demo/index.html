@@ -32,6 +32,8 @@
   .toast[data-on="true"] { opacity: 1; }
   body.capture header, body.capture details { display: none; }
   body.capture main { padding: 12px; grid-template-columns: minmax(0, 1fr); }
+  /* ?two=1: two cards side by side, for the README's hero GIF. */
+  body.capture.two main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   /* ?editor=1: the card and its editor side by side, as in HA's card editor dialog. */
   body.capture.with-editor { display: grid; grid-template-columns: minmax(0, 1fr) 400px; align-items: start; }
   body.capture.with-editor details { display: block; margin: 12px 12px 12px 0; }
@@ -99,6 +101,7 @@
   const seed = q.has('seed') ? Number(q.get('seed')) : undefined;
   document.body.classList.toggle('capture', q.has('capture'));
   document.body.classList.toggle('with-editor', q.has('editor'));
+  document.body.classList.toggle('two', q.has('two'));
   if (q.has('editor')) document.getElementById('editor-box').open = true;
   if (q.has('cursor')) {
     const cursor = document.createElement('div');

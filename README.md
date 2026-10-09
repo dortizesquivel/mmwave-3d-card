@@ -14,7 +14,7 @@ It supports three Hi-Link radars:
 - **HLK-LD6004**: 60 GHz, **X/Y/Z** of up to 3 people, through the [`esphome-ld6004`](https://github.com/javierconfoie/esphome-ld6004) external component. With Z the card also shows whether each person is standing, sitting or lying.
 - **HLK-LD2410** (B and C too): 24 GHz, **distance only**, through the official ESPHome `ld2410` component. The card draws each detection as a shell of the sensor's beam at its distance and charts the energy of each gate against its threshold, which is what you need to tune it.
 
-![A tour of the card: live 3D, heatmap, zone editing and replay](docs/demo.gif)
+![Two cards side by side. Left: an LD6004 in live 3D and its heatmap. Right: an LD2450 in a 3D model of a living room, orbited, zoomed, seen from the sensor and in plan, then in the untextured futuristic style](docs/demo.gif)
 
 ![An LD2450 on the wall, an LD6004 on the wall and an LD6004 on the ceiling](docs/screenshot.png)
 
