@@ -6,6 +6,7 @@
 [![Validate](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/validate.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/validate.yml)
 [![CodeQL](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/codeql.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dortizesquivel/mmwave-3d-card/badge)](https://scorecard.dev/viewer/?uri=github.com/dortizesquivel/mmwave-3d-card)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15325/badge)](https://www.bestpractices.dev/projects/15325)
 [![License: MIT](https://img.shields.io/github/license/dortizesquivel/mmwave-3d-card)](LICENSE)
 
 A Lovelace card that draws an mmWave presence radar in 3D: the sensor's coverage, its zones and every person it tracks, with a short trail behind each one. Built with [three.js](https://threejs.org/) and bundled into a single file, so it works without internet access.
@@ -701,7 +702,7 @@ The card runs in your browser with the permissions of whoever views the dashboar
 - **What it changes:** something only when an admin edits zones or switches the LD2410's engineering mode.
 - **What it downloads:** the room model, if you set one. There is no telemetry and nothing loads from external servers.
 
-Every change is checked by CodeQL, `npm audit` and the tests, and the [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/dortizesquivel/mmwave-3d-card) rates the project's practices. Every release's file is signed with a build-provenance attestation: `gh attestation verify mmwave-3d-card.js --repo dortizesquivel/mmwave-3d-card` proves it was built by the release workflow from the tagged source.
+Every change is checked by CodeQL, `npm audit`, ESLint, fuzzing and the tests. The [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/dortizesquivel/mmwave-3d-card) rates the project's practices, and the project holds the [OpenSSF Best Practices passing badge](https://www.bestpractices.dev/projects/15325). Every release's file is signed with a build-provenance attestation: `gh attestation verify mmwave-3d-card.js --repo dortizesquivel/mmwave-3d-card` proves it was built by the release workflow from the tagged source.
 
 Details, and how to report a vulnerability privately, are in [SECURITY.md](SECURITY.md).
 
