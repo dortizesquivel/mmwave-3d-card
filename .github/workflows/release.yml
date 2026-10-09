@@ -3,7 +3,8 @@ name: Release
 # Run it from Actions → Release → Run workflow, or:
 #   gh workflow run release.yml -f bump=patch        (patch | minor | major)
 # It tests, bumps package.json, rebuilds dist/, updates CHANGELOG.md, commits, tags
-# and publishes a GitHub release with the card attached (HACS installs from it).
+# and publishes a GitHub release with the card attached (HACS installs from it), with a signed
+# build-provenance attestation for that file.
 on:
   workflow_dispatch:
     inputs:
@@ -23,6 +24,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write        # sign the build-provenance attestation
+  attestations: write    # store it with the repository
 
 concurrency:
   group: release
@@ -81,6 +84,14 @@ jobs:
           git commit -m "chore(release): $TAG"
           git tag -a "$TAG" -m "$TAG"
           git push origin HEAD:main "$TAG"
+
+      # Proves the released file was built by this workflow from this commit:
+      #   gh attestation verify mmwave-3d-card.js --repo dortizesquivel/mmwave-3d-card
+      - name: Attest build provenance
+        if: inputs.dry_run == false
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/mmwave-3d-card.js
 
       - name: Publish GitHub release
         if: inputs.dry_run == false
