@@ -4,7 +4,8 @@ Thanks for helping. Bug reports, ideas and pull requests are welcome. Everyone t
 
 ## Reporting
 
-- **Bugs and ideas**: open an [issue](https://github.com/dortizesquivel/mmwave-3d-card/issues). Include the card's version, your sensor and the card's YAML. A screenshot or the browser console's errors help a lot.
+- **Bugs**: open an [issue](https://github.com/dortizesquivel/mmwave-3d-card/issues/new/choose) with the bug form. It asks for the card's version, your sensor and the card's YAML. A screenshot or the browser console's errors help a lot.
+- **Ideas**: propose them, or vote with a 👍 on the ones you want, in [Discussions → Ideas](https://github.com/dortizesquivel/mmwave-3d-card/discussions/categories/ideas). Questions go to [Q&A](https://github.com/dortizesquivel/mmwave-3d-card/discussions/categories/q-a).
 - **Security problems**: don't open an issue; report them privately as [SECURITY.md](SECURITY.md) explains.
 
 ## Pull requests

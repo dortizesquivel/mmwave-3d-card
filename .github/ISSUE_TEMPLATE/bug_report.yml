@@ -1,0 +1,63 @@
+name: Bug report
+description: Something in the card doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. Security problems go privately through [Report a vulnerability](https://github.com/dortizesquivel/mmwave-3d-card/security/advisories/new), not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you see, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      description: The steps, so it can be reproduced.
+      placeholder: |
+        1. Open the dashboard with the card
+        2. Select Replay, then 6 h
+        3. …
+    validations:
+      required: true
+  - type: dropdown
+    id: sensor
+    attributes:
+      label: Sensor
+      options: [HLK-LD2450, HLK-LD6004, HLK-LD2410 (B, C), Other]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Card version
+      description: In HACS, or at the top of the browser console.
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: input
+    id: ha
+    attributes:
+      label: Home Assistant version
+      placeholder: 2026.10.1
+  - type: input
+    id: browser
+    attributes:
+      label: Browser or app
+      placeholder: Chrome 140 on Windows, the Home Assistant app on Android, a wall tablet…
+  - type: textarea
+    id: config
+    attributes:
+      label: The card's YAML
+      description: From the card editor's code view. Remove anything private.
+      render: yaml
+  - type: textarea
+    id: console
+    attributes:
+      label: Errors in the browser console
+      description: Optional. Open the developer tools (F12) and copy any red lines that mention mmwave-3d-card.
+      render: text
