@@ -6,6 +6,8 @@
 [![Validate](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/validate.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/validate.yml)
 [![License: MIT](https://img.shields.io/github/license/dortizesquivel/mmwave-3d-card)](LICENSE)
 
+**[Try it live](https://dortizesquivel.github.io/mmwave-3d-card/)**: the card running in your browser, with simulated people in a 3D living room.
+
 A Lovelace card that draws an mmWave presence radar in 3D: the sensor's coverage, its zones and every person it tracks, with a short trail behind each one. Built with [three.js](https://threejs.org/) and bundled into a single file, so it works without internet access.
 
 It supports three Hi-Link radars:

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mmWave 3D Card for Home Assistant</title>
+<meta name="description" content="A Home Assistant card that draws HLK-LD2450, LD6004 and LD2410 mmWave presence radars in 3D: each person, their trail, your zones and a model of your room, live.">
+<meta property="og:title" content="mmWave 3D Card for Home Assistant">
+<meta property="og:description" content="See where everyone is in the room: mmWave presence radars drawn in 3D, in your Home Assistant dashboard.">
+<meta property="og:image" content="https://dortizesquivel.github.io/mmwave-3d-card/docs/images/model.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600&family=Unbounded:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #f3f6f9;
+    --ink: #1b2430;
+    --ink-soft: #4a5868;
+    --line: #c9d3de;
+    --signal: #1f6fd1;
+    --person: #eb6834;
+    --model: #7350d8;
+    --surface: #ffffff;
+    --measure: 64ch;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 400 1.0625rem/1.6 "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  }
+  img { max-width: 100%; height: auto; display: block; }
+  a { color: var(--signal); text-underline-offset: 0.2em; }
+  a:focus-visible, button:focus-visible { outline: 3px solid var(--signal); outline-offset: 3px; border-radius: 4px; }
+  h1, h2, h3 { font-family: Unbounded, system-ui, sans-serif; font-weight: 600; line-height: 1.12; margin: 0; letter-spacing: -0.01em; }
+  h1 { font-size: clamp(2.2rem, 4.6vw, 3.6rem); }
+  h2 { font-size: clamp(1.5rem, 2.6vw, 2.1rem); }
+  h3 { font-size: 1.05rem; font-weight: 400; }
+  p { margin: 0; max-width: var(--measure); }
+  .wrap { width: min(1180px, 100% - 2.5rem); margin-inline: auto; }
+
+  /* Header */
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-block: 1.1rem; position: relative; z-index: 2; }
+  .brand { display: flex; align-items: center; gap: 0.6rem; color: var(--ink); text-decoration: none; font-family: Unbounded, sans-serif; font-weight: 600; }
+  .top nav { display: flex; gap: 1.4rem; font-weight: 600; }
+  .top nav a { color: var(--ink); text-decoration: none; }
+  .top nav a:hover { color: var(--signal); }
+
+  /* Hero: the radar's coverage, from a sensor in the top-left corner, runs behind the headline */
+  .hero { position: relative; overflow: hidden; padding-block: 2.5rem 5rem; }
+  .fan { position: absolute; left: 0; top: 0; width: max(1400px, 120vw); height: auto; pointer-events: none; z-index: 0; }
+  .fan .ring { fill: none; stroke: var(--line); stroke-width: 1.2; }
+  .fan .edge { stroke: var(--line); stroke-width: 1.2; }
+  .fan .range { fill: #8696a8; font: 400 14px "Atkinson Hyperlegible Next", sans-serif; }
+  .fan .sensor { fill: var(--ink); }
+  .fan .cover { fill: var(--signal); opacity: 0.05; }
+  .hero-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 3rem; align-items: center; }
+  .lede { margin-top: 1.4rem; font-size: 1.2rem; color: var(--ink-soft); }
+  .actions { display: flex; flex-wrap: wrap; gap: 0.8rem; margin-top: 2rem; }
+  .button { display: inline-flex; align-items: center; min-height: 48px; padding: 0 1.3rem; border-radius: 999px; font-weight: 600; text-decoration: none; border: 2px solid var(--signal); }
+  .button.primary { background: var(--signal); color: #fff; }
+  .button.primary:hover { background: #1a5fb4; border-color: #1a5fb4; }
+  .button.secondary { color: var(--signal); background: transparent; }
+  .button.secondary:hover { background: rgba(31, 111, 209, 0.08); }
+  .demo { background: var(--surface); border-radius: 18px; box-shadow: 0 1px 2px rgba(27, 36, 48, 0.08), 0 18px 48px -18px rgba(27, 36, 48, 0.35); overflow: hidden; }
+  .demo iframe { display: block; width: 100%; height: 580px; border: 0; }
+  .demo-note { margin-top: 0.9rem; color: var(--ink-soft); font-size: 0.95rem; }
+
+  /* Sections */
+  section { padding-block: 4.5rem; }
+  section + section { border-top: 1px solid var(--line); }
+  .intro { margin-top: 0.9rem; color: var(--ink-soft); }
+  .sensors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2rem; margin-top: 2.5rem; }
+  .sensor img { border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+  .sensor h3 { margin-top: 1rem; }
+  .sensor p { margin-top: 0.35rem; color: var(--ink-soft); }
+
+  .room h2 { color: var(--model); }
+  .room .copy { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; margin-top: 0.9rem; }
+  .room .copy p { color: var(--ink-soft); }
+  .room img { margin-top: 2.5rem; border-radius: 12px; border: 1px solid var(--line); }
+  .room code { font-size: 0.95em; }
+
+  .features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3rem 3rem; margin-top: 2.5rem; }
+  .feature img { width: 100%; aspect-ratio: 5 / 4; object-fit: cover; object-position: left top; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+  .feature h3 { margin-top: 1rem; }
+  .feature p { margin-top: 0.35rem; color: var(--ink-soft); }
+  .more { margin-top: 2.5rem; }
+
+  .steps { counter-reset: step; list-style: none; padding: 0; margin: 2.5rem 0 0; display: grid; gap: 2rem; max-width: 760px; }
+  .steps li { counter-increment: step; display: grid; grid-template-columns: 3rem minmax(0, 1fr); gap: 1rem; }
+  .steps li::before { content: counter(step); font: 600 1.6rem/1 Unbounded, sans-serif; color: var(--signal); }
+  .steps h3 { margin-bottom: 0.4rem; }
+  pre { margin: 0.8rem 0 0; padding: 1rem 1.2rem; background: var(--ink); color: #e8eef5; border-radius: 10px; overflow-x: auto; font-size: 0.92rem; line-height: 1.5; }
+
+  .trust { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 3rem; align-items: start; }
+  .trust ul { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.6rem; }
+  .badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.4rem; }
+  .badges img { height: 20px; width: auto; }
+
+  footer { padding-block: 2.5rem 3rem; color: var(--ink-soft); border-top: 1px solid var(--line); }
+  footer p { max-width: none; }
+
+  @media (max-width: 900px) {
+    .hero-grid, .trust, .room .copy { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
+    .room .copy { gap: 1rem; }
+    .sensors, .features { grid-template-columns: minmax(0, 1fr); }
+    .demo iframe { height: 580px; }
+    .top nav { gap: 1rem; font-size: 0.95rem; }
+  }
+  @media (max-width: 520px) {
+    .top nav a.optional { display: none; }
+    section { padding-block: 3.2rem; }
+  }
+</style>
+</head>
+<body>
+<header class="wrap top">
+  <a class="brand" href="./">
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M3 3 L27 3 A24 24 0 0 1 3 27 Z" fill="#1f6fd1" opacity=".18"/><path d="M3 9 A6 6 0 0 1 9 3" stroke="#1f6fd1" stroke-width="2" fill="none"/><path d="M3 16 A13 13 0 0 1 16 3" stroke="#1f6fd1" stroke-width="2" fill="none"/><circle cx="3.5" cy="3.5" r="2.5" fill="#1b2430"/><circle cx="15" cy="15" r="3" fill="#eb6834"/></svg>
+    mmWave 3D Card
+  </a>
+  <nav aria-label="Main">
+    <a class="optional" href="#install">Install</a>
+    <a href="https://github.com/dortizesquivel/mmwave-3d-card#readme">Docs</a>
+    <a href="https://github.com/dortizesquivel/mmwave-3d-card">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <div class="hero">
+    <svg class="fan" viewBox="0 0 1400 1000" aria-hidden="true">
+      <path class="cover" d="M0 0 L1300 0 A1300 1300 0 0 1 0 1300 Z"/>
+      <g>
+        <path class="ring" d="M216 0 A216 216 0 0 1 0 216"/>
+        <path class="ring" d="M433 0 A433 433 0 0 1 0 433"/>
+        <path class="ring" d="M650 0 A650 650 0 0 1 0 650"/>
+        <path class="ring" d="M866 0 A866 866 0 0 1 0 866"/>
+        <path class="ring" d="M1083 0 A1083 1083 0 0 1 0 1083"/>
+        <path class="ring" d="M1300 0 A1300 1300 0 0 1 0 1300"/>
+      </g>
+      <text class="range" x="441" y="20">2 m</text>
+      <text class="range" x="874" y="20">4 m</text>
+      <text class="range" x="1308" y="20">6 m</text>
+      <circle class="sensor" cx="6" cy="6" r="6"/>
+    </svg>
+
+    <div class="wrap hero-grid">
+      <div>
+        <h1>See where everyone is in the room.</h1>
+        <p class="lede">A Home Assistant card that draws your mmWave presence radar in 3D: each person, their trail, your zones and a model of your room, live.</p>
+        <div class="actions">
+          <a class="button primary" href="https://my.home-assistant.io/redirect/hacs_repository/?owner=dortizesquivel&amp;repository=mmwave-3d-card&amp;category=plugin">Add to Home Assistant</a>
+          <a class="button secondary" href="https://github.com/dortizesquivel/mmwave-3d-card#readme">Read the docs</a>
+        </div>
+      </div>
+      <figure style="margin:0">
+        <div class="demo">
+          <iframe src="demo/?cards=model&amp;capture=1&amp;theme=light&amp;seed=1&amp;t=20&amp;table=0&amp;height=480" title="Live demo of the card in a living room, with simulated people" loading="eager"></iframe>
+        </div>
+        <figcaption class="demo-note">The card itself, running here with simulated people. Drag to turn the room, use + and − to zoom, and switch to Plan or Sensor. <a href="demo/">Open the full demo</a>, with every sensor and the visual editor.</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <section id="sensors" class="wrap">
+    <h2>Three Hi-Link radars</h2>
+    <p class="intro">It reads them through ESPHome and draws what each one can actually measure.</p>
+    <div class="sensors">
+      <article class="sensor">
+        <img src="docs/sensors/ld2450.gif" width="760" height="560" alt="An LD2450 on the wall: three people with their positions and trails, and three zones" loading="lazy">
+        <h3>HLK-LD2450</h3>
+        <p>Position of up to three people on the floor, their speed and the sensor's zones.</p>
+      </article>
+      <article class="sensor">
+        <img src="docs/sensors/ld6004-wall.gif" width="760" height="560" alt="An LD6004 in a drawn room: people standing, sitting and lying, and its zones" loading="lazy">
+        <h3>HLK-LD6004</h3>
+        <p>Position and height of up to three people, so each figure stands, sits or lies down. On the wall or the ceiling.</p>
+      </article>
+      <article class="sensor">
+        <img src="docs/sensors/ld2410.gif" width="760" height="560" alt="An LD2410: the moving and still detections as shells of the beam at their distance" loading="lazy">
+        <h3>HLK-LD2410</h3>
+        <p>Distance only, drawn as a shell of the beam, with the energy of each gate against its threshold for tuning.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="room" class="wrap room">
+    <h2>Your own room, in 3D</h2>
+    <div class="copy">
+      <p>Load a model of your room and say where the sensor is. People, zones and coverage are drawn inside it, and from outside it reads like a doll's house. Draw it as it is, with its textures, or as a hologram that keeps the shapes.</p>
+      <p>No model yet? Two to four photos are enough: the repository has the <a href="https://github.com/dortizesquivel/mmwave-3d-card/blob/main/demo/models/living-room/prompt.md">prompt an AI agent follows</a> to build one, the way the living room above was made.</p>
+    </div>
+    <img src="docs/images/model.png" width="1600" height="412" alt="The example living room as a textured model and as a futuristic hologram" loading="lazy">
+  </section>
+
+  <section id="features" class="wrap">
+    <h2>More than a live view</h2>
+    <div class="features">
+      <article class="feature">
+        <img src="docs/gifs/zone-editing.gif" width="520" height="420" alt="Resizing and moving a zone, then drawing a new one, on the floor" loading="lazy">
+        <h3>Edit zones on the floor</h3>
+        <p>Drag a zone's corners or draw a new one, and the card saves it straight to the sensor.</p>
+      </article>
+      <article class="feature">
+        <img src="docs/gifs/replay.gif" width="520" height="420" alt="Replaying the last hour at ×60 and jumping ahead with the slider" loading="lazy">
+        <h3>Replay the last day</h3>
+        <p>Play back 1, 6 or 24 hours from Home Assistant's history, skipping the time nobody was there.</p>
+      </article>
+      <article class="feature">
+        <img src="docs/images/heatmap.png" width="1600" height="560" alt="Where each person spent the last hour, in plan and in 3D" loading="lazy">
+        <h3>See where people spend their time</h3>
+        <p>A heatmap of the last hours, coloured by person.</p>
+      </article>
+      <article class="feature">
+        <img src="docs/gifs/more-info.gif" width="520" height="420" alt="Tapping a person and then a zone to open their details" loading="lazy">
+        <h3>Tap anyone for their history</h3>
+        <p>A person or a zone opens its entity's details in Home Assistant.</p>
+      </article>
+    </div>
+    <p class="more">It also has a visual editor, follows your Home Assistant theme, speaks English and Spanish, and stops drawing when it's off screen. <a href="https://github.com/dortizesquivel/mmwave-3d-card#features">See every feature</a>.</p>
+  </section>
+
+  <section id="install" class="wrap">
+    <h2>Install it</h2>
+    <ol class="steps">
+      <li>
+        <div>
+          <h3>Add the card with HACS</h3>
+          <p><a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=dortizesquivel&amp;repository=mmwave-3d-card&amp;category=plugin">Open it in HACS</a>, choose Download and reload the browser. Without HACS, copy the file from the <a href="https://github.com/dortizesquivel/mmwave-3d-card/releases/latest">latest release</a>.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Set up the sensor in ESPHome</h3>
+          <p>Keep the entity names from the <a href="https://github.com/dortizesquivel/mmwave-3d-card#setting-up-the-sensor-in-esphome">example YAML for your sensor</a>, so the card finds them.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Add the card to a dashboard</h3>
+          <p>Search for mmWave 3D Card in Add card, or paste this and adjust the prefix:</p>
+          <pre><code>type: custom:mmwave-3d-card
+device: ld2450
+prefix: living_room_radar
+title: Living room
+mount_height: 2.1</code></pre>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section id="trust" class="wrap trust">
+    <div>
+      <h2>Open and checked</h2>
+      <p class="intro">MIT licensed. It runs in your browser, sends nothing anywhere and only changes your sensor when an admin edits its zones.</p>
+      <div class="badges">
+        <a href="https://www.bestpractices.dev/projects/15325"><img src="https://www.bestpractices.dev/projects/15325/badge" alt="OpenSSF Best Practices: passing"></a>
+        <a href="https://scorecard.dev/viewer/?uri=github.com/dortizesquivel/mmwave-3d-card"><img src="https://api.scorecard.dev/projects/github.com/dortizesquivel/mmwave-3d-card/badge" alt="OpenSSF Scorecard"></a>
+        <a href="https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/codeql.yml"><img src="https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+      </div>
+    </div>
+    <ul>
+      <li>Every change runs CodeQL, ESLint, fuzzing, unit and browser tests before it can merge.</li>
+      <li>Every release is built by GitHub Actions and signed, so you can check where your copy came from: <code>gh attestation verify mmwave-3d-card.js --repo dortizesquivel/mmwave-3d-card</code></li>
+      <li>Found a security problem? <a href="https://github.com/dortizesquivel/mmwave-3d-card/security/advisories/new">Report it privately</a>.</li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>mmWave 3D Card, MIT licence. Built with three.js. The demo uses simulated people; the living room was rebuilt from synthetic photos with CC0 materials. <a href="https://github.com/dortizesquivel/mmwave-3d-card">Source on GitHub</a>.</p>
+  </div>
+</footer>
+</body>
+</html>
