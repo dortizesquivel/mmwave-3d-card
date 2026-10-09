@@ -10,7 +10,7 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15325/badge)](https://www.bestpractices.dev/projects/15325)
 [![License: MIT](https://img.shields.io/github/license/dortizesquivel/mmwave-3d-card)](LICENSE)
 
-**[Try it live](https://dortizesquivel.github.io/mmwave-3d-card/)**: the card running in your browser, with simulated people in a 3D living room.
+**[Try it live](https://dortizesquivel.github.io/mmwave-3d-card/)**: the card running in your browser, with simulated people in a 3D living room. **[Ideas and feedback](https://github.com/dortizesquivel/mmwave-3d-card/discussions)**: tell us what it should do next.
 
 A Lovelace card that draws an mmWave presence radar in 3D: the sensor's coverage, its zones and every person it tracks, with a short trail behind each one. Built with [three.js](https://threejs.org/) and bundled into a single file, so it works without internet access.
 
@@ -768,6 +768,10 @@ It runs the tests, bumps the version in `package.json`, rebuilds `dist/`, adds t
 `dist/` on `main` is only rebuilt by releases, so it can lag behind `src/` between them; use `npm run build` locally. Dependabot opens one grouped PR a month for npm and GitHub Actions updates.
 
 ## Roadmap
+
+What comes next depends on what people use it for. Vote with a 👍 on the [ideas in Discussions](https://github.com/dortizesquivel/mmwave-3d-card/discussions/categories/ideas), answer the [polls](https://github.com/dortizesquivel/mmwave-3d-card/discussions/categories/polls), propose your own, or show your setup in [Show and tell](https://github.com/dortizesquivel/mmwave-3d-card/discussions/categories/show-and-tell). Bugs go to [issues](https://github.com/dortizesquivel/mmwave-3d-card/issues/new/choose).
+
+Planned so far:
 
 - Check the LD6004 axes, the sign of Z and the ceiling mode with real hardware.
 - Several sensors in one scene, to compare them or to cover a large room.
