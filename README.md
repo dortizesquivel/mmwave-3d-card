@@ -707,7 +707,7 @@ The card runs in your browser with the permissions of whoever views the dashboar
 
 Every change is checked by CodeQL, `npm audit`, ESLint, fuzzing and the tests. The [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/dortizesquivel/mmwave-3d-card) rates the project's practices, and the project holds the [OpenSSF Best Practices passing badge](https://www.bestpractices.dev/projects/15325). Every release's file is signed with a build-provenance attestation: `gh attestation verify mmwave-3d-card.js --repo dortizesquivel/mmwave-3d-card` proves it was built by the release workflow from the tagged source.
 
-Details, and how to report a vulnerability privately, are in [SECURITY.md](SECURITY.md).
+Details, and how to report a vulnerability privately, are in [SECURITY.md](SECURITY.md); the reasoning behind them, from the threat model to the evidence, is in the [assurance case](docs/ASSURANCE.md). The project follows a [code of conduct](CODE_OF_CONDUCT.md) and its [governance](GOVERNANCE.md) is written down.
 
 ## Development
 
@@ -746,7 +746,7 @@ npm run test:browser              # interaction tests; screenshot comparisons on
 
 Only the release and the screenshot-baseline workflows push to `main` directly, with a deploy key (the `DEPLOY_KEY` secret), the ruleset's only bypass.
 
-Layout:
+Layout (more in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), with the data flow):
 
 - `src/adapters/`: one file per sensor, mapping its entities to a common model in metres and writing zones back. A new sensor is a new adapter.
 - `src/scene.js`: the three.js scene: room, zones and their editing, targets, heatmap layer, picking.
@@ -774,6 +774,8 @@ It runs the tests, bumps the version in `package.json`, rebuilds `dist/`, adds t
 - A "probable pet" rule for the LD6004: low targets outside the places where people lie down.
 - Presets for commercial sensors built on the LD2450 (Everything Presence, Apollo MTR-1, Screek).
 - An LD6001 adapter if anyone uses it.
+
+The full [roadmap](ROADMAP.md) covers the next year, and what the project won't do.
 
 ## License
 

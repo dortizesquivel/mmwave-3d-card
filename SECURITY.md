@@ -29,6 +29,8 @@ The card is a JavaScript module that runs in your browser, inside Home Assistant
 
 ## How it's checked
 
+The [assurance case](docs/ASSURANCE.md) explains in more detail why the card meets these requirements: the threat model, the trust boundaries, the design principles and the weaknesses it counters.
+
 - **[CodeQL](.github/workflows/codeql.yml)**: static analysis of the source and of the workflows with GitHub's `security-extended` queries, on every pull request, on `main` and weekly.
 - **[OpenSSF Scorecard](.github/workflows/scorecard.yml)**: the project's security practices, scored publicly.
 - **[CI](.github/workflows/ci.yml)**: `npm audit` of what ships, unit and browser tests on every pull request. `main` only takes changes through pull requests that pass them.
@@ -43,3 +45,5 @@ Every release's `mmwave-3d-card.js` has a signed build-provenance attestation: p
 ```bash
 gh attestation verify mmwave-3d-card.js --repo dortizesquivel/mmwave-3d-card
 ```
+
+The build is also reproducible: checking out a release's tag and running `npm ci && npm run build` gives a `dist/mmwave-3d-card.js` byte for byte identical to the released file, so you can compare their SHA-256.
