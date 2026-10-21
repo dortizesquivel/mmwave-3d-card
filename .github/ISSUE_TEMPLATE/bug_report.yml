@@ -28,7 +28,7 @@ body:
     id: sensor
     attributes:
       label: Sensor
-      options: [HLK-LD2450, HLK-LD6004, HLK-LD2410 (B, C), Other]
+      options: [HLK-LD2450, HLK-LD6004, "HLK-LD2410 (B, C)", Other]
     validations:
       required: true
   - type: input
