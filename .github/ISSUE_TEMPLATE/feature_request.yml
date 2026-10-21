@@ -23,7 +23,7 @@ body:
     attributes:
       label: Your sensor
       multiple: true
-      options: [HLK-LD2450, HLK-LD6004, HLK-LD2410 (B, C), A sensor the card doesn't support yet]
+      options: [HLK-LD2450, HLK-LD6004, "HLK-LD2410 (B, C)", A sensor the card doesn't support yet]
   - type: textarea
     id: more
     attributes:
