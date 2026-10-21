@@ -1,6 +1,6 @@
 # mmWave 3D Card
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
 [![GitHub release](https://img.shields.io/github/v/release/dortizesquivel/mmwave-3d-card?include_prereleases)](https://github.com/dortizesquivel/mmwave-3d-card/releases)
 [![Downloads](https://img.shields.io/github/downloads/dortizesquivel/mmwave-3d-card/mmwave-3d-card.js?displayAssetName=false&label=downloads)](https://github.com/dortizesquivel/mmwave-3d-card/releases)
 [![CI](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/ci.yml/badge.svg)](https://github.com/dortizesquivel/mmwave-3d-card/actions/workflows/ci.yml)
@@ -286,17 +286,15 @@ Only the distances and the moving/still targets are required. With the gate enti
 
 ### Via HACS (recommended)
 
-[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dortizesquivel&repository=mmwave-3d-card&category=plugin)
-
-The button opens this repository in HACS on your own Home Assistant. If HACS doesn't have it yet, it offers to add it: confirm with type **Dashboard**, then select **Download**.
-
-Or by hand:
+The card is in HACS's default list:
 
 1. In Home Assistant, open **HACS** from the sidebar.
-2. Select the menu (⋮) at the top right → **Custom repositories**.
-3. Paste `https://github.com/dortizesquivel/mmwave-3d-card` in **Repository**, choose **Dashboard** as the **Type** and select **Add**.
-4. Close that dialog, search for **mmWave 3D Card**, open it and select **Download**.
-5. Reload the browser, then add the card to a dashboard: see [Quick start](#quick-start).
+2. Search for **mmWave 3D Card**, open it and select **Download**.
+3. Reload the browser, then add the card to a dashboard: see [Quick start](#quick-start).
+
+Or open it in HACS on your own Home Assistant with this button, then select **Download**:
+
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dortizesquivel&repository=mmwave-3d-card&category=plugin)
 
 HACS registers the card as a dashboard resource for you. If your dashboards are in YAML mode, add it yourself in `configuration.yaml`:
 
@@ -308,8 +306,6 @@ lovelace:
 ```
 
 **Updates:** new versions show up in HACS and under **Settings → Updates**. Install the update and reload the browser.
-
-The card is waiting for review to join HACS's default list. Until it's accepted, it is added as a custom repository (steps 2 and 3 above).
 
 ### Manual
 
